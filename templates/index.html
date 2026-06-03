@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAPE - Gestión de Pedidos</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: Arial, sans-serif; }
+  .nav-link { display:block; padding:8px 12px; border-radius:6px; cursor:pointer; transition:background 0.15s; color:#d1d5db; }
+  .nav-link:hover { background:#374151; }
+  .nav-link.active { background:#2563eb; color:#fff; }
+  .view { display:none; }
+  .view.active { display:block; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:9999px; font-size:0.75rem; font-weight:600; }
+  .badge-alta { background:#fee2e2; color:#991b1b; }
+  .badge-media { background:#fef3c7; color:#92400e; }
+  .badge-baja { background:#d1fae5; color:#065f46; }
+  .badge-sin { background:#f3f4f6; color:#6b7280; }
+  .badge-pend { background:#dbeafe; color:#1e40af; }
+  .badge-comp { background:#d1fae5; color:#065f46; }
+  .table-row:hover { background:#f9fafb; }
+  input, select, textarea { border:1px solid #d1d5db; border-radius:6px; padding:6px 10px; width:100%; box-sizing:border-box; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,0.15); }
+  .btn { padding:8px 16px; border-radius:6px; font-weight:600; cursor:pointer; border:none; transition:background 0.15s; }
+  .btn-primary { background:#2563eb; color:#fff; }
+  .btn-primary:hover { background:#1d4ed8; }
+  .btn-secondary { background:#e5e7eb; color:#374151; }
+  .btn-secondary:hover { background:#d1d5db; }
+  .btn-danger { background:#ef4444; color:#fff; }
+  .btn-danger:hover { background:#dc2626; }
+  .btn-sm { padding:4px 10px; font-size:0.8rem; }
+  .card { background:#fff; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,0.08); padding:20px; }
+  .stat-card { background:#fff; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,0.08); padding:20px; border-left:4px solid; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:50; display:flex; align-items:center; justify-content:center; }
+  .modal { background:#fff; border-radius:12px; padding:24px; max-width:520px; width:100%; max-height:90vh; overflow-y:auto; }
+  .autocomplete-list { position:absolute; background:#fff; border:1px solid #d1d5db; border-radius:6px; z-index:100; max-height:200px; overflow-y:auto; width:100%; box-shadow:0 4px 12px rgba(0,0,0,0.1); top:100%; left:0; }
+  .autocomplete-item { padding:8px 12px; cursor:pointer; }
+  .autocomplete-item:hover { background:#eff6ff; }
+  .pos-rel { position:relative; }
+  .spinner { border:3px solid #e5e7eb; border-top:3px solid #2563eb; border-radius:50%; width:20px; height:20px; animation:spin 0.7s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<div class="flex">
+  <nav class="w-52 bg-gray-900 min-h-screen fixed top-0 left-0 p-4 z-10">
+    <div class="mb-8">
+      <h1 class="text-blue-400 font-bold text-xl">MAPE</h1>
+      <p class="text-gray-500 text-xs mt-1">Gestión de Pedidos</p>
+    </div>
+    <ul class="space-y-1">
+      <li><span class="nav-link" onclick="showView('dashboard')">📊 Dashboard</span></li>
+      <li><span class="nav-link" onclick="showView('pedidos')">📦 Pedidos</span></li>
+      <li><span class="nav-link" onclick="showView('nuevo-pedido')">➕ Nuevo Pedido</span></li>
+      <li><span class="nav-link" onclick="showView('remito')">🚚 Registrar Remito</span></li>
+      <li><span class="nav-link" onclick="showView('cuenta')">💰 Cuenta Corriente</span></li>
+      <li><span class="nav-link" onclick="showView('productos')">🏷️ Lista de Precios</span></li>
+    </ul>
+  </nav>
+
+  <main class="ml-52 p-6 w-full min-h-screen">
+
+    <!-- DASHBOARD -->
+    <div id="view-dashboard" class="view">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">Dashboard</h2>
+      <div class="grid grid-cols-4 gap-4 mb-6" id="stats-cards"><div class="spinner"></div></div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="card">
+          <h3 class="font-bold text-gray-700 mb-3">Pedidos Urgentes (Alta)</h3>
+          <div id="dash-urgentes"></div>
+        </div>
+        <div class="card">
+          <h3 class="font-bold text-gray-700 mb-3">Últimos Movimientos CC</h3>
+          <div id="dash-cc"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PEDIDOS -->
+    <div id="view-pedidos" class="view">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold text-gray-800">Pedidos</h2>
+        <button class="btn btn-primary" onclick="showView('nuevo-pedido')">+ Nuevo Pedido</button>
+      </div>
+      <div class="card mb-4">
+        <div class="flex gap-4 flex-wrap items-end">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Estado</label>
+            <select id="filtro-estado" onchange="renderPedidos()" style="width:140px">
+              <option value="pendiente">Pendientes</option>
+              <option value="todos">Todos</option>
+              <option value="completado">Completados</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Urgencia</label>
+            <select id="filtro-urgencia" onchange="renderPedidos()" style="width:140px">
+              <option value="">Todas</option>
+              <option value="alta">Alta</option>
+              <option value="media">Media</option>
+              <option value="baja">Baja</option>
+              <option value="sin">Sin urgencia</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Buscar</label>
+            <input type="text" id="filtro-buscar" placeholder="Producto..." oninput="renderPedidos()" style="width:220px">
+          </div>
+        </div>
+      </div>
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="text-left p-3 text-gray-600">Fecha</th>
+              <th class="text-left p-3 text-gray-600">Producto</th>
+              <th class="text-center p-3 text-gray-600">Cant.</th>
+              <th class="text-center p-3 text-gray-600">Entregado</th>
+              <th class="text-center p-3 text-gray-600">Pendiente</th>
+              <th class="text-right p-3 text-gray-600">Precio Unit.</th>
+              <th class="text-center p-3 text-gray-600">Urgencia</th>
+              <th class="text-center p-3 text-gray-600">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tabla-pedidos"></tbody>
+        </table>
+        <div id="pedidos-empty" class="p-8 text-center text-gray-400 hidden">No hay pedidos que mostrar.</div>
+      </div>
+    </div>
+
+    <!-- NUEVO PEDIDO -->
+    <div id="view-nuevo-pedido" class="view">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">Nuevo Pedido</h2>
+      <div class="card max-w-2xl">
+        <form id="form-pedido" onsubmit="guardarPedido(event)">
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Fecha <span class="text-red-500">*</span></label>
+              <input type="date" id="p-fecha" required>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Urgencia</label>
+              <select id="p-urgencia">
+                <option value="">Sin urgencia</option>
+                <option value="baja">Baja</option>
+                <option value="media">Media</option>
+                <option value="alta">Alta</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-4 pos-rel">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Producto <span class="text-red-500">*</span></label>
+            <input type="text" id="p-producto" placeholder="Buscá en la lista o escribí un producto a medida..."
+              oninput="autocompleteProducto(this)" autocomplete="off" required>
+            <div id="autocomplete-list" class="autocomplete-list hidden"></div>
+            <p id="p-producto-hint" class="text-xs text-gray-400 mt-1">Escribí para buscar en la lista de precios, o ingresá cualquier nombre personalizado.</p>
+          </div>
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad <span class="text-red-500">*</span></label>
+              <input type="number" id="p-cantidad" min="1" required>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Precio Unitario
+                <span id="p-precio-tag" class="hidden ml-1 text-xs font-normal px-1.5 py-0.5 rounded bg-blue-100 text-blue-600">de lista</span>
+                <span id="p-precio-custom-tag" class="hidden ml-1 text-xs font-normal px-1.5 py-0.5 rounded bg-orange-100 text-orange-600">a medida</span>
+              </label>
+              <input type="number" id="p-precio" min="0" step="0.01" placeholder="Ingresá el precio" oninput="onPrecioManual()">
+              <p class="text-xs text-gray-400 mt-1">Se completa solo si el producto está en la lista. Si no, ingresalo acá.</p>
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Esperada de Entrega</label>
+            <input type="date" id="p-fecha-esperada">
+          </div>
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+            <textarea id="p-notas" rows="2" placeholder="Observaciones..."></textarea>
+          </div>
+          <div class="flex gap-3">
+            <button type="submit" class="btn btn-primary" id="btn-guardar-pedido">Guardar Pedido</button>
+            <button type="button" class="btn btn-secondary" onclick="showView('pedidos')">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- REGISTRAR REMITO -->
+    <div id="view-remito" class="view">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">Registrar Remito</h2>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-4">Datos del Remito</h3>
+          <div class="mb-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Número de Remito</label>
+            <input type="text" id="r-numero" placeholder="Ej: 15150">
+          </div>
+          <div class="mb-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha <span class="text-red-500">*</span></label>
+            <input type="date" id="r-fecha">
+          </div>
+          <div class="mb-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Monto Total del Remito ($)</label>
+            <input type="number" id="r-monto" min="0" step="0.01" placeholder="0.00">
+            <p class="text-xs text-gray-400 mt-1">💡 Se calcula automáticamente al seleccionar items (precio del pedido). Podés editarlo.</p>
+          </div>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+            <textarea id="r-notas" rows="2" placeholder="Observaciones del remito..."></textarea>
+          </div>
+          <button class="btn btn-primary w-full" id="btn-guardar-remito" onclick="guardarRemito()">✅ Registrar Remito</button>
+        </div>
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-4">Items Recibidos</h3>
+          <p class="text-xs text-gray-500 mb-3">Seleccioná los pedidos pendientes que llegaron con este remito e indicá la cantidad recibida.</p>
+          <div id="remito-items-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CUENTA CORRIENTE -->
+    <div id="view-cuenta" class="view">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold text-gray-800">Cuenta Corriente MAPE</h2>
+        <button class="btn btn-primary" onclick="openModalPago()">+ Registrar Movimiento</button>
+      </div>
+      <div class="grid grid-cols-3 gap-4 mb-4">
+        <div class="stat-card border-blue-500">
+          <p class="text-xs text-gray-500">Total Acreditado (deuda)</p>
+          <p class="text-2xl font-bold text-blue-700" id="cc-total-acredita">-</p>
+        </div>
+        <div class="stat-card border-green-500">
+          <p class="text-xs text-gray-500">Total Pagado / Debitado</p>
+          <p class="text-2xl font-bold text-green-700" id="cc-total-debita">-</p>
+        </div>
+        <div class="stat-card border-red-500">
+          <p class="text-xs text-gray-500">Saldo a Pagar</p>
+          <p class="text-2xl font-bold" id="cc-saldo">-</p>
+        </div>
+      </div>
+      <div class="card mb-3">
+        <div class="flex gap-4 flex-wrap items-end">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Tipo</label>
+            <select id="cc-filtro-tipo" onchange="renderCuenta()" style="width:180px">
+              <option value="">Todos</option>
+              <option value="acredita">Acreditado (deuda)</option>
+              <option value="debita">Pagado / Débito</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Buscar</label>
+            <input type="text" id="cc-filtro-buscar" placeholder="Detalle..." oninput="renderCuenta()" style="width:220px">
+          </div>
+        </div>
+      </div>
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="text-left p-3 text-gray-600">Fecha</th>
+              <th class="text-left p-3 text-gray-600">Detalle</th>
+              <th class="text-right p-3 text-blue-600">Acreditado (Deuda)</th>
+              <th class="text-right p-3 text-green-600">Pagado / Débito</th>
+              <th class="text-right p-3 text-gray-600">Saldo</th>
+              <th class="text-center p-3 text-gray-600">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tabla-cuenta"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- LISTA DE PRECIOS -->
+    <div id="view-productos" class="view">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold text-gray-800">Lista de Precios</h2>
+        <button class="btn btn-primary" onclick="openModalProducto()">+ Agregar Producto</button>
+      </div>
+      <div class="card mb-3">
+        <input type="text" id="prod-buscar" placeholder="Buscar producto..." oninput="renderProductos()" style="max-width:300px">
+      </div>
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="text-left p-3 text-gray-600">Producto</th>
+              <th class="text-right p-3 text-gray-600">Precio</th>
+              <th class="text-center p-3 text-gray-600">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tabla-productos"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Modal: Editar Pedido -->
+<div id="modal-pedido" class="modal-overlay hidden">
+  <div class="modal w-[600px]">
+    <h3 class="font-bold text-lg text-gray-800 mb-4">Editar Pedido</h3>
+    <div id="modal-pedido-contenido"></div>
+    <div class="flex gap-3 mt-4">
+      <button class="btn btn-primary" onclick="guardarModalPedido()">Guardar</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-pedido')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Registrar Movimiento CC -->
+<div id="modal-pago" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 class="font-bold text-lg text-gray-800 mb-4">Registrar Movimiento</h3>
+    <div class="mb-3">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Fecha <span class="text-red-500">*</span></label>
+      <input type="date" id="pago-fecha">
+    </div>
+    <div class="mb-3">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Tipo <span class="text-red-500">*</span></label>
+      <select id="pago-tipo">
+        <option value="debita">Pago / Débito (reduce saldo)</option>
+        <option value="acredita">Acreditado / Cargo (aumenta deuda)</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Detalle <span class="text-red-500">*</span></label>
+      <input type="text" id="pago-detalle" placeholder="Descripción">
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Monto ($) <span class="text-red-500">*</span></label>
+      <input type="number" id="pago-monto" min="0" step="0.01">
+    </div>
+    <div class="flex gap-3">
+      <button class="btn btn-primary" onclick="guardarPago()">Guardar</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-pago')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Producto -->
+<div id="modal-producto" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 class="font-bold text-lg text-gray-800 mb-4" id="modal-prod-titulo">Agregar Producto</h3>
+    <input type="hidden" id="prod-edit-id">
+    <div class="mb-3">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Nombre <span class="text-red-500">*</span></label>
+      <input type="text" id="prod-nombre">
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Precio ($) <span class="text-red-500">*</span></label>
+      <input type="number" id="prod-precio" min="0" step="0.01">
+    </div>
+    <div class="flex gap-3">
+      <button class="btn btn-primary" onclick="guardarProducto()">Guardar</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-producto')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State in memory ──────────────────────────────────────────────────────────
+let products = [], orders = [], account = [];
+const remitoItems = {};
+
+// ── Utils ────────────────────────────────────────────────────────────────────
+const fmt = n => n == null ? '-' : '$' + Number(n).toLocaleString('es-AR', {minimumFractionDigits:0,maximumFractionDigits:0});
+const fmtFecha = f => f ? new Date(f + 'T00:00:00').toLocaleDateString('es-AR') : '-';
+const today = () => new Date().toISOString().split('T')[0];
+const urgBadge = u => {
+  if (!u) return '<span class="badge badge-sin">Sin urgencia</span>';
+  const m = {alta:'badge-alta',media:'badge-media',baja:'badge-baja'};
+  return `<span class="badge ${m[u]}">${u[0].toUpperCase()+u.slice(1)}</span>`;
+};
+
+// ── API ──────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method, headers: {'Content-Type':'application/json'},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return r.json();
+}
+
+async function loadAll() {
+  [products, orders, account] = await Promise.all([
+    api('GET','/api/products'),
+    api('GET','/api/orders'),
+    api('GET','/api/account'),
+  ]);
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+async function showView(v) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-' + v)?.classList.add('active');
+  document.querySelectorAll('.nav-link').forEach(el => {
+    if (el.getAttribute('onclick') === `showView('${v}')`) el.classList.add('active');
+  });
+  if (v === 'dashboard') { await loadAll(); renderDashboard(); }
+  if (v === 'pedidos') { orders = await api('GET','/api/orders'); renderPedidos(); }
+  if (v === 'nuevo-pedido') { products = await api('GET','/api/products'); initFormPedido(); }
+  if (v === 'remito') { orders = await api('GET','/api/orders'); renderRemito(); }
+  if (v === 'cuenta') { account = await api('GET','/api/account'); renderCuenta(); }
+  if (v === 'productos') { products = await api('GET','/api/products'); renderProductos(); }
+}
+
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const pendientes = orders.filter(o => o.pendiente > 0);
+  const altas = pendientes.filter(o => o.urgencia === 'alta');
+  const totalA = account.reduce((s,e) => s+(e.acredita||0), 0);
+  const totalD = account.reduce((s,e) => s+(e.debita||0), 0);
+  const saldo = totalA - totalD;
+
+  document.getElementById('stats-cards').innerHTML = `
+    <div class="stat-card border-orange-400">
+      <p class="text-xs text-gray-500">Items Pendientes</p>
+      <p class="text-3xl font-bold text-orange-600">${pendientes.length}</p>
+      <p class="text-xs text-gray-400 mt-1">${pendientes.reduce((s,o)=>s+o.pendiente,0)} unidades</p>
+    </div>
+    <div class="stat-card border-red-500">
+      <p class="text-xs text-gray-500">Urgencia Alta</p>
+      <p class="text-3xl font-bold text-red-600">${altas.length}</p>
+      <p class="text-xs text-gray-400 mt-1">pedidos urgentes</p>
+    </div>
+    <div class="stat-card border-blue-500">
+      <p class="text-xs text-gray-500">Total Acreditado</p>
+      <p class="text-xl font-bold text-blue-700">${fmt(totalA)}</p>
+      <p class="text-xs text-gray-400 mt-1">deuda generada</p>
+    </div>
+    <div class="stat-card border-${saldo>0?'red':'green'}-500">
+      <p class="text-xs text-gray-500">Saldo a Pagar</p>
+      <p class="text-xl font-bold ${saldo>0?'text-red-700':'text-green-700'}">${fmt(Math.abs(saldo))}</p>
+      <p class="text-xs text-gray-400 mt-1">${saldo>0?'adeudado a MAPE':'a favor'}</p>
+    </div>
+  `;
+
+  const uel = document.getElementById('dash-urgentes');
+  uel.innerHTML = altas.length === 0
+    ? '<p class="text-gray-400 text-sm">No hay pedidos con urgencia alta.</p>'
+    : altas.slice(0,8).map(o => `
+      <div class="flex justify-between items-center py-2 border-b last:border-0">
+        <div><p class="text-sm font-medium">${o.producto}</p>
+             <p class="text-xs text-gray-500">${fmtFecha(o.fecha)} · Pend: ${o.pendiente}</p></div>
+        <span class="badge badge-alta">Alta</span>
+      </div>`).join('');
+
+  document.getElementById('dash-cc').innerHTML = [...account].reverse().slice(0,8).map(e => `
+    <div class="flex justify-between items-center py-2 border-b last:border-0">
+      <div><p class="text-sm">${e.detalle}</p><p class="text-xs text-gray-500">${fmtFecha(e.fecha)}</p></div>
+      <span class="text-sm font-semibold ${e.acredita?'text-blue-600':'text-green-600'}">
+        ${e.acredita ? '+'+fmt(e.acredita) : '-'+fmt(e.debita)}</span>
+    </div>`).join('');
+}
+
+// ── Pedidos ──────────────────────────────────────────────────────────────────
+function renderPedidos() {
+  const estado   = document.getElementById('filtro-estado').value;
+  const urgencia = document.getElementById('filtro-urgencia').value;
+  const buscar   = (document.getElementById('filtro-buscar').value||'').toLowerCase();
+  let list = [...orders].reverse();
+  if (estado === 'pendiente')  list = list.filter(o => o.pendiente > 0);
+  if (estado === 'completado') list = list.filter(o => o.pendiente === 0);
+  if (urgencia === 'sin') list = list.filter(o => !o.urgencia);
+  else if (urgencia) list = list.filter(o => o.urgencia === urgencia);
+  if (buscar) list = list.filter(o => o.producto.toLowerCase().includes(buscar));
+
+  const tbody = document.getElementById('tabla-pedidos');
+  const empty = document.getElementById('pedidos-empty');
+  if (!list.length) { tbody.innerHTML=''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  tbody.innerHTML = list.map(o => `
+    <tr class="table-row border-b">
+      <td class="p-3 text-gray-600 whitespace-nowrap">${fmtFecha(o.fecha)}</td>
+      <td class="p-3">
+        <div class="font-medium text-gray-800">${o.producto}</div>
+        ${o.notas ? `<div class="text-xs text-gray-400">${o.notas}</div>` : ''}
+        ${o.fecha_esperada ? `<div class="text-xs text-blue-500">📅 Esperado: ${fmtFecha(o.fecha_esperada)}</div>` : ''}
+      </td>
+      <td class="p-3 text-center font-medium">${o.cantidad}</td>
+      <td class="p-3 text-center text-green-700">${o.entregado}</td>
+      <td class="p-3 text-center">${o.pendiente>0?`<span class="badge badge-pend">${o.pendiente}</span>`:'<span class="badge badge-comp">✓</span>'}</td>
+      <td class="p-3 text-right text-gray-600">${o.precio ? fmt(o.precio) : '-'}</td>
+      <td class="p-3 text-center">${urgBadge(o.urgencia)}</td>
+      <td class="p-3 text-center whitespace-nowrap">
+        <button class="btn btn-sm btn-secondary mr-1" onclick="editarPedido(${o.id})">✏️ Editar</button>
+        <button class="btn btn-sm btn-danger" onclick="eliminarPedido(${o.id})">🗑️</button>
+      </td>
+    </tr>`).join('');
+}
+
+function editarPedido(id) {
+  const o = orders.find(x => x.id === id);
+  if (!o) return;
+  document.getElementById('modal-pedido-contenido').innerHTML = `
+    <input type="hidden" id="edit-id" value="${o.id}">
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div><label class="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+           <input type="date" id="edit-fecha" value="${o.fecha||''}"></div>
+      <div><label class="block text-sm font-medium text-gray-700 mb-1">Urgencia</label>
+           <select id="edit-urgencia">
+             <option value="" ${!o.urgencia?'selected':''}>Sin urgencia</option>
+             <option value="baja" ${o.urgencia==='baja'?'selected':''}>Baja</option>
+             <option value="media" ${o.urgencia==='media'?'selected':''}>Media</option>
+             <option value="alta" ${o.urgencia==='alta'?'selected':''}>Alta</option>
+           </select></div>
+    </div>
+    <div class="mb-3"><label class="block text-sm font-medium text-gray-700 mb-1">Producto</label>
+      <input type="text" id="edit-producto" value="${o.producto}"></div>
+    <div class="grid grid-cols-3 gap-3 mb-3">
+      <div><label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+           <input type="number" id="edit-cantidad" value="${o.cantidad}" min="1"></div>
+      <div><label class="block text-sm font-medium text-gray-700 mb-1">Entregado</label>
+           <input type="number" id="edit-entregado" value="${o.entregado}" min="0"></div>
+      <div><label class="block text-sm font-medium text-gray-700 mb-1">Precio Unit.</label>
+           <input type="number" id="edit-precio" value="${o.precio}" min="0" step="0.01"></div>
+    </div>
+    <div class="mb-3"><label class="block text-sm font-medium text-gray-700 mb-1">Fecha Esperada</label>
+      <input type="date" id="edit-fecha-esp" value="${o.fecha_esperada||''}"></div>
+    <div class="mb-3"><label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+      <textarea id="edit-notas" rows="2">${o.notas||''}</textarea></div>
+  `;
+  openModal('modal-pedido');
+}
+
+async function guardarModalPedido() {
+  const id = parseInt(document.getElementById('edit-id').value);
+  const cant = parseInt(document.getElementById('edit-cantidad').value)||0;
+  const entregado = parseInt(document.getElementById('edit-entregado').value)||0;
+  const updated = await api('PUT', `/api/orders/${id}`, {
+    fecha: document.getElementById('edit-fecha').value||null,
+    urgencia: document.getElementById('edit-urgencia').value||null,
+    producto: document.getElementById('edit-producto').value,
+    cantidad: cant, entregado,
+    precio: parseFloat(document.getElementById('edit-precio').value)||0,
+    fechaEsperada: document.getElementById('edit-fecha-esp').value||null,
+    notas: document.getElementById('edit-notas').value
+  });
+  const idx = orders.findIndex(o => o.id === id);
+  if (idx >= 0) orders[idx] = updated;
+  closeModal('modal-pedido');
+  renderPedidos();
+}
+
+async function eliminarPedido(id) {
+  if (!confirm('¿Eliminar este pedido?')) return;
+  await api('DELETE', `/api/orders/${id}`);
+  orders = orders.filter(o => o.id !== id);
+  renderPedidos();
+}
+
+// ── Nuevo Pedido ─────────────────────────────────────────────────────────────
+let selectedProductId = null;
+
+function initFormPedido() {
+  document.getElementById('form-pedido').reset();
+  document.getElementById('p-fecha').value = today();
+  selectedProductId = null;
+  document.getElementById('p-precio-tag').classList.add('hidden');
+  document.getElementById('p-precio-custom-tag').classList.add('hidden');
+  document.getElementById('p-producto-hint').textContent = 'Escribí para buscar en la lista de precios, o ingresá cualquier nombre personalizado.';
+  document.getElementById('p-producto-hint').className = 'text-xs text-gray-400 mt-1';
+}
+
+function autocompleteProducto(input) {
+  const val = input.value.toLowerCase();
+  const list = document.getElementById('autocomplete-list');
+  selectedProductId = null;
+  document.getElementById('p-precio-tag').classList.add('hidden');
+  document.getElementById('p-precio-custom-tag').classList.add('hidden');
+  if (!val || val.length < 2) { list.classList.add('hidden'); return; }
+  const matches = products.filter(p => p.nombre.toLowerCase().includes(val)).slice(0,10);
+  if (!matches.length) { list.classList.add('hidden'); return; }
+  list.innerHTML = matches.map(p =>
+    `<div class="autocomplete-item" onclick="selectProducto(${p.id},'${p.nombre.replace(/'/g,"\\'")}',${p.precio})">
+       <span class="font-medium">${p.nombre}</span>
+       <span class="text-gray-400 text-xs ml-2">${fmt(p.precio)}</span>
+     </div>`).join('');
+  list.classList.remove('hidden');
+}
+
+function selectProducto(id, nombre, precio) {
+  document.getElementById('p-producto').value = nombre;
+  document.getElementById('p-precio').value = precio;
+  selectedProductId = id;
+  document.getElementById('autocomplete-list').classList.add('hidden');
+  document.getElementById('p-precio-tag').classList.remove('hidden');
+  document.getElementById('p-precio-custom-tag').classList.add('hidden');
+  document.getElementById('p-producto-hint').textContent = '✓ Producto de la lista. El precio fue cargado automáticamente.';
+  document.getElementById('p-producto-hint').className = 'text-xs text-blue-500 mt-1';
+}
+
+function onPrecioManual() {
+  if (!selectedProductId) {
+    document.getElementById('p-precio-custom-tag').classList.remove('hidden');
+    document.getElementById('p-precio-tag').classList.add('hidden');
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.pos-rel')) document.getElementById('autocomplete-list')?.classList.add('hidden');
+});
+
+async function guardarPedido(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-guardar-pedido');
+  btn.disabled = true; btn.textContent = 'Guardando...';
+  try {
+    const nuevo = await api('POST', '/api/orders', {
+      fecha: document.getElementById('p-fecha').value,
+      producto: document.getElementById('p-producto').value.trim(),
+      cantidad: parseInt(document.getElementById('p-cantidad').value)||0,
+      precio: parseFloat(document.getElementById('p-precio').value)||0,
+      urgencia: document.getElementById('p-urgencia').value||null,
+      fechaEsperada: document.getElementById('p-fecha-esperada').value||null,
+      notas: document.getElementById('p-notas').value
+    });
+    orders.push(nuevo);
+    showView('pedidos');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Guardar Pedido';
+  }
+}
+
+// ── Remito ───────────────────────────────────────────────────────────────────
+function renderRemito() {
+  document.getElementById('r-fecha').value = today();
+  document.getElementById('r-monto').value = '';
+  Object.keys(remitoItems).forEach(k => delete remitoItems[k]);
+
+  const pendientes = orders.filter(o => o.pendiente > 0);
+  const el = document.getElementById('remito-items-list');
+  if (!pendientes.length) { el.innerHTML='<p class="text-gray-400 text-sm">No hay pedidos con items pendientes.</p>'; return; }
+
+  el.innerHTML = pendientes.map(o => `
+    <div class="flex items-center gap-3 py-2 border-b last:border-0">
+      <input type="checkbox" id="ri-check-${o.id}" onchange="toggleRemitoItem(${o.id})" class="w-4 h-4 flex-shrink-0">
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-gray-800 truncate">${o.producto}</div>
+        <div class="text-xs text-gray-500">Pend: ${o.pendiente} · ${o.precio?fmt(o.precio)+'/u':'sin precio'} ${urgBadge(o.urgencia)}</div>
+      </div>
+      <input type="number" id="ri-qty-${o.id}" min="1" max="${o.pendiente}" value="${o.pendiente}"
+        style="width:70px" class="text-sm" disabled onchange="updateRemitoItem(${o.id})">
+    </div>`).join('');
+}
+
+function toggleRemitoItem(id) {
+  const checked = document.getElementById(`ri-check-${id}`).checked;
+  const qtyInput = document.getElementById(`ri-qty-${id}`);
+  qtyInput.disabled = !checked;
+  if (checked) remitoItems[id] = parseInt(qtyInput.value)||1;
+  else delete remitoItems[id];
+  recalcRemitoTotal();
+}
+
+function updateRemitoItem(id) {
+  if (remitoItems[id] !== undefined) {
+    remitoItems[id] = parseInt(document.getElementById(`ri-qty-${id}`).value)||1;
+    recalcRemitoTotal();
+  }
+}
+
+function recalcRemitoTotal() {
+  let total = 0;
+  for (const [idStr, qty] of Object.entries(remitoItems)) {
+    const order = orders.find(o => o.id === parseInt(idStr));
+    if (order && order.precio > 0) total += order.precio * qty;
+  }
+  const input = document.getElementById('r-monto');
+  if (total > 0) input.value = total.toFixed(2);
+  else if (!Object.keys(remitoItems).length) input.value = '';
+}
+
+async function guardarRemito() {
+  const fecha = document.getElementById('r-fecha').value;
+  const numero = document.getElementById('r-numero').value.trim();
+  const monto = parseFloat(document.getElementById('r-monto').value)||0;
+  const notas = document.getElementById('r-notas').value.trim();
+  if (!fecha) { alert('Ingresá la fecha del remito.'); return; }
+  if (!Object.keys(remitoItems).length) { alert('Seleccioná al menos un item.'); return; }
+
+  const btn = document.getElementById('btn-guardar-remito');
+  btn.disabled = true; btn.textContent = 'Registrando...';
+
+  const detalle = numero
+    ? `Remito ${numero}${notas?' - '+notas:''}`
+    : `Entrega ${fecha.split('-').slice(1).reverse().join('/')}${notas?' - '+notas:''}`;
+
+  try {
+    await api('POST', '/api/remito', {
+      fecha, monto, detalle,
+      items: Object.entries(remitoItems).map(([id,qty]) => ({orderId:parseInt(id),cantidad:qty}))
+    });
+    orders = await api('GET','/api/orders');
+    account = await api('GET','/api/account');
+    alert(`Remito registrado correctamente.${monto>0?'\nMonto: '+fmt(monto):''}`);
+    renderRemito();
+    document.getElementById('r-numero').value='';
+    document.getElementById('r-notas').value='';
+  } finally {
+    btn.disabled = false; btn.textContent = '✅ Registrar Remito';
+  }
+}
+
+// ── Cuenta Corriente ─────────────────────────────────────────────────────────
+function renderCuenta() {
+  const tipo   = document.getElementById('cc-filtro-tipo').value;
+  const buscar = (document.getElementById('cc-filtro-buscar').value||'').toLowerCase();
+  let list = [...account];
+  if (tipo === 'acredita') list = list.filter(e => e.acredita);
+  if (tipo === 'debita')   list = list.filter(e => e.debita);
+  if (buscar) list = list.filter(e => e.detalle.toLowerCase().includes(buscar));
+
+  const totalA = account.reduce((s,e)=>s+(e.acredita||0),0);
+  const totalD = account.reduce((s,e)=>s+(e.debita||0),0);
+  const saldo = totalA - totalD;
+
+  document.getElementById('cc-total-acredita').textContent = fmt(totalA);
+  document.getElementById('cc-total-debita').textContent = fmt(totalD);
+  const sel = document.getElementById('cc-saldo');
+  sel.textContent = fmt(Math.abs(saldo));
+  sel.className = 'text-2xl font-bold '+(saldo>0?'text-red-700':'text-green-700');
+
+  // running balance map (on all entries, in insertion order)
+  let running = 0;
+  const balMap = {};
+  account.forEach(e => { running += (e.acredita||0)-(e.debita||0); balMap[e.id]=running; });
+
+  document.getElementById('tabla-cuenta').innerHTML = [...list].reverse().map(e => {
+    const b = balMap[e.id];
+    return `<tr class="table-row border-b">
+      <td class="p-3 text-gray-600 whitespace-nowrap">${fmtFecha(e.fecha)}</td>
+      <td class="p-3 text-gray-800">${e.detalle}</td>
+      <td class="p-3 text-right text-blue-600 font-medium">${e.acredita?fmt(e.acredita):''}</td>
+      <td class="p-3 text-right text-green-700 font-medium">${e.debita?fmt(e.debita):''}</td>
+      <td class="p-3 text-right font-semibold ${b>0?'text-red-600':'text-green-600'}">${fmt(Math.abs(b))}</td>
+      <td class="p-3 text-center">
+        <button class="btn btn-sm btn-danger" onclick="eliminarMovimiento(${e.id})">🗑️</button>
+      </td>
+    </tr>`;}).join('');
+}
+
+function openModalPago() {
+  document.getElementById('pago-fecha').value = today();
+  document.getElementById('pago-tipo').value = 'debita';
+  document.getElementById('pago-detalle').value = '';
+  document.getElementById('pago-monto').value = '';
+  openModal('modal-pago');
+}
+
+async function guardarPago() {
+  const fecha = document.getElementById('pago-fecha').value;
+  const tipo  = document.getElementById('pago-tipo').value;
+  const detalle = document.getElementById('pago-detalle').value.trim();
+  const monto = parseFloat(document.getElementById('pago-monto').value)||0;
+  if (!fecha||!detalle||monto<=0) { alert('Completá todos los campos.'); return; }
+  const body = {fecha, detalle, debita: null, acredita: null};
+  body[tipo] = monto;
+  const entry = await api('POST','/api/account', body);
+  account.push(entry);
+  closeModal('modal-pago');
+  renderCuenta();
+}
+
+async function eliminarMovimiento(id) {
+  if (!confirm('¿Eliminar este movimiento?')) return;
+  await api('DELETE',`/api/account/${id}`);
+  account = account.filter(e => e.id !== id);
+  renderCuenta();
+}
+
+// ── Productos ─────────────────────────────────────────────────────────────────
+function renderProductos() {
+  const buscar = (document.getElementById('prod-buscar').value||'').toLowerCase();
+  const list = products.filter(p => !buscar||p.nombre.toLowerCase().includes(buscar));
+  document.getElementById('tabla-productos').innerHTML = list.map(p => `
+    <tr class="table-row border-b">
+      <td class="p-3 font-medium text-gray-800">${p.nombre}</td>
+      <td class="p-3 text-right text-gray-700">${fmt(p.precio)}</td>
+      <td class="p-3 text-center whitespace-nowrap">
+        <button class="btn btn-sm btn-secondary mr-1" onclick="editarProducto(${p.id})">✏️</button>
+        <button class="btn btn-sm btn-danger" onclick="eliminarProducto(${p.id})">🗑️</button>
+      </td>
+    </tr>`).join('');
+}
+
+function openModalProducto() {
+  document.getElementById('modal-prod-titulo').textContent = 'Agregar Producto';
+  document.getElementById('prod-edit-id').value = '';
+  document.getElementById('prod-nombre').value = '';
+  document.getElementById('prod-precio').value = '';
+  openModal('modal-producto');
+}
+
+function editarProducto(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('modal-prod-titulo').textContent = 'Editar Producto';
+  document.getElementById('prod-edit-id').value = p.id;
+  document.getElementById('prod-nombre').value = p.nombre;
+  document.getElementById('prod-precio').value = p.precio;
+  openModal('modal-producto');
+}
+
+async function guardarProducto() {
+  const id = document.getElementById('prod-edit-id').value;
+  const nombre = document.getElementById('prod-nombre').value.trim().toUpperCase();
+  const precio = parseFloat(document.getElementById('prod-precio').value)||0;
+  if (!nombre) { alert('Ingresá el nombre.'); return; }
+  if (id) {
+    const updated = await api('PUT',`/api/products/${id}`, {nombre, precio});
+    const idx = products.findIndex(p => p.id === parseInt(id));
+    if (idx >= 0) products[idx] = updated;
+  } else {
+    const nuevo = await api('POST','/api/products', {nombre, precio});
+    products.push(nuevo);
+  }
+  closeModal('modal-producto');
+  renderProductos();
+}
+
+async function eliminarProducto(id) {
+  if (!confirm('¿Eliminar este producto?')) return;
+  await api('DELETE',`/api/products/${id}`);
+  products = products.filter(p => p.id !== id);
+  renderProductos();
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+showView('dashboard');
+</script>
+</body>
+</html>
