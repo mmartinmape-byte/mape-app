@@ -144,7 +144,7 @@ function renderCards() {
 }
 
 function cardHTML(o) {
-  const estado = o.estado || 'iniciado';
+  const estado = o.estado || 'espera';
   const urgencia = o.urgencia;
   const urgBadge = urgencia
     ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full badge-${urgencia}">${urgencia[0].toUpperCase()+urgencia.slice(1)}</span>`
