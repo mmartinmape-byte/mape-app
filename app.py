@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, render_template
+from decimal import Decimal
 import os, json
 
 app = Flask(__name__)
@@ -8,6 +9,10 @@ USE_PG = bool(DATABASE_URL and 'postgres' in DATABASE_URL)
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
+
+def fix(row):
+    """Convierte Decimal a float para que jsonify serialice correctamente."""
+    return {k: float(v) if isinstance(v, Decimal) else v for k, v in row.items()}
 
 def get_conn():
     if USE_PG:
@@ -32,10 +37,10 @@ def q(sql, params=None, fetch='all'):
             cur = conn.cursor()
         cur.execute(sql, params or ())
         if fetch == 'all':
-            result = [dict(r) for r in cur.fetchall()]
+            result = [fix(dict(r)) for r in cur.fetchall()]
         elif fetch == 'one':
             r = cur.fetchone()
-            result = dict(r) if r else None
+            result = fix(dict(r)) if r else None
         elif fetch == 'id':
             if pg:
                 r = cur.fetchone()
