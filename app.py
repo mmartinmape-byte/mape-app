@@ -378,14 +378,14 @@ def init_db():
         cur = conn.cursor()
         if pg:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS products (
+                CREATE TABLE IF NOT EXISTS mape_products (
                     id SERIAL PRIMARY KEY,
                     nombre TEXT NOT NULL,
                     precio NUMERIC DEFAULT 0
                 )
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS orders (
+                CREATE TABLE IF NOT EXISTS mape_orders (
                     id SERIAL PRIMARY KEY,
                     fecha TEXT,
                     producto TEXT NOT NULL,
@@ -400,7 +400,7 @@ def init_db():
                 )
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS account (
+                CREATE TABLE IF NOT EXISTS mape_account (
                     id SERIAL PRIMARY KEY,
                     fecha TEXT NOT NULL,
                     detalle TEXT NOT NULL,
@@ -411,14 +411,14 @@ def init_db():
             """)
         else:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS products (
+                CREATE TABLE IF NOT EXISTS mape_products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     nombre TEXT NOT NULL,
                     precio REAL DEFAULT 0
                 )
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS orders (
+                CREATE TABLE IF NOT EXISTS mape_orders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     fecha TEXT,
                     producto TEXT NOT NULL,
@@ -433,7 +433,7 @@ def init_db():
                 )
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS account (
+                CREATE TABLE IF NOT EXISTS mape_account (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     fecha TEXT NOT NULL,
                     detalle TEXT NOT NULL,
@@ -445,19 +445,19 @@ def init_db():
         conn.commit()
 
         # Seed if empty
-        cur.execute("SELECT COUNT(*) FROM products")
+        cur.execute("SELECT COUNT(*) FROM mape_products")
         r = cur.fetchone()
         count = r[0]
         if count == 0:
             for nombre, precio in PRODUCTS_SEED:
-                cur.execute(f"INSERT INTO products (nombre, precio) VALUES ({ph},{ph})", (nombre, precio))
+                cur.execute(f"INSERT INTO mape_products (nombre, precio) VALUES ({ph},{ph})", (nombre, precio))
             for row in ORDERS_SEED:
                 cur.execute(f"""
-                    INSERT INTO orders (fecha,producto,cantidad,entregado,pendiente,precio,fecha_esperada,notas)
+                    INSERT INTO mape_orders (fecha,producto,cantidad,entregado,pendiente,precio,fecha_esperada,notas)
                     VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})
                 """, row)
             for fecha, detalle, debita, acredita in ACCOUNT_SEED:
-                cur.execute(f"INSERT INTO account (fecha,detalle,debita,acredita) VALUES ({ph},{ph},{ph},{ph})",
+                cur.execute(f"INSERT INTO mape_account (fecha,detalle,debita,acredita) VALUES ({ph},{ph},{ph},{ph})",
                             (fecha, detalle, debita, acredita))
             conn.commit()
     finally:
@@ -474,34 +474,34 @@ def index():
 # Products
 @app.route('/api/products', methods=['GET'])
 def get_products():
-    return jsonify(q("SELECT * FROM products ORDER BY nombre"))
+    return jsonify(q("SELECT * FROM mape_products ORDER BY nombre"))
 
 @app.route('/api/products', methods=['POST'])
 def create_product():
     d = request.json
     ph = '%s' if USE_PG else '?'
-    rid = q(f"INSERT INTO products (nombre, precio) VALUES ({ph},{ph}) {'RETURNING id' if USE_PG else ''}",
+    rid = q(f"INSERT INTO mape_products (nombre, precio) VALUES ({ph},{ph}) {'RETURNING id' if USE_PG else ''}",
             (d['nombre'], d['precio']), fetch='id')
-    return jsonify(q(f"SELECT * FROM products WHERE id={ph}", (rid,), fetch='one'))
+    return jsonify(q(f"SELECT * FROM mape_products WHERE id={ph}", (rid,), fetch='one'))
 
 @app.route('/api/products/<int:pid>', methods=['PUT'])
 def update_product(pid):
     d = request.json
     ph = '%s' if USE_PG else '?'
-    run(f"UPDATE products SET nombre={ph}, precio={ph} WHERE id={ph}", (d['nombre'], d['precio'], pid))
-    return jsonify(q(f"SELECT * FROM products WHERE id={ph}", (pid,), fetch='one'))
+    run(f"UPDATE mape_products SET nombre={ph}, precio={ph} WHERE id={ph}", (d['nombre'], d['precio'], pid))
+    return jsonify(q(f"SELECT * FROM mape_products WHERE id={ph}", (pid,), fetch='one'))
 
 @app.route('/api/products/<int:pid>', methods=['DELETE'])
 def delete_product(pid):
     ph = '%s' if USE_PG else '?'
-    run(f"DELETE FROM products WHERE id={ph}", (pid,))
+    run(f"DELETE FROM mape_products WHERE id={ph}", (pid,))
     return jsonify({'ok': True})
 
 
 # Orders
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
-    return jsonify(q("SELECT * FROM orders ORDER BY id"))
+    return jsonify(q("SELECT * FROM mape_orders ORDER BY id"))
 
 @app.route('/api/orders', methods=['POST'])
 def create_order():
@@ -509,12 +509,12 @@ def create_order():
     ph = '%s' if USE_PG else '?'
     cantidad = d['cantidad']
     rid = q(f"""
-        INSERT INTO orders (fecha,producto,cantidad,entregado,pendiente,precio,urgencia,notas,fecha_esperada)
+        INSERT INTO mape_orders (fecha,producto,cantidad,entregado,pendiente,precio,urgencia,notas,fecha_esperada)
         VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}
     """, (d.get('fecha'), d['producto'], cantidad, 0, cantidad,
           d.get('precio', 0), d.get('urgencia'), d.get('notas',''), d.get('fechaEsperada')),
          fetch='id')
-    return jsonify(q(f"SELECT * FROM orders WHERE id={ph}", (rid,), fetch='one'))
+    return jsonify(q(f"SELECT * FROM mape_orders WHERE id={ph}", (rid,), fetch='one'))
 
 @app.route('/api/orders/<int:oid>', methods=['PUT'])
 def update_order(oid):
@@ -524,36 +524,36 @@ def update_order(oid):
     entregado = d['entregado']
     pendiente = max(0, cant - entregado)
     run(f"""
-        UPDATE orders SET fecha={ph},producto={ph},cantidad={ph},entregado={ph},pendiente={ph},
+        UPDATE mape_orders SET fecha={ph},producto={ph},cantidad={ph},entregado={ph},pendiente={ph},
         precio={ph},urgencia={ph},notas={ph},fecha_esperada={ph} WHERE id={ph}
     """, (d.get('fecha'), d['producto'], cant, entregado, pendiente,
           d.get('precio', 0), d.get('urgencia'), d.get('notas',''), d.get('fechaEsperada'), oid))
-    return jsonify(q(f"SELECT * FROM orders WHERE id={ph}", (oid,), fetch='one'))
+    return jsonify(q(f"SELECT * FROM mape_orders WHERE id={ph}", (oid,), fetch='one'))
 
 @app.route('/api/orders/<int:oid>', methods=['DELETE'])
 def delete_order(oid):
     ph = '%s' if USE_PG else '?'
-    run(f"DELETE FROM orders WHERE id={ph}", (oid,))
+    run(f"DELETE FROM mape_orders WHERE id={ph}", (oid,))
     return jsonify({'ok': True})
 
 
 # Account
 @app.route('/api/account', methods=['GET'])
 def get_account():
-    return jsonify(q("SELECT * FROM account ORDER BY id"))
+    return jsonify(q("SELECT * FROM mape_account ORDER BY id"))
 
 @app.route('/api/account', methods=['POST'])
 def create_account():
     d = request.json
     ph = '%s' if USE_PG else '?'
-    rid = q(f"INSERT INTO account (fecha,detalle,debita,acredita) VALUES ({ph},{ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}",
+    rid = q(f"INSERT INTO mape_account (fecha,detalle,debita,acredita) VALUES ({ph},{ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}",
             (d['fecha'], d['detalle'], d.get('debita'), d.get('acredita')), fetch='id')
-    return jsonify(q(f"SELECT * FROM account WHERE id={ph}", (rid,), fetch='one'))
+    return jsonify(q(f"SELECT * FROM mape_account WHERE id={ph}", (rid,), fetch='one'))
 
 @app.route('/api/account/<int:aid>', methods=['DELETE'])
 def delete_account(aid):
     ph = '%s' if USE_PG else '?'
-    run(f"DELETE FROM account WHERE id={ph}", (aid,))
+    run(f"DELETE FROM mape_account WHERE id={ph}", (aid,))
     return jsonify({'ok': True})
 
 
@@ -570,17 +570,17 @@ def register_remito():
     for item in items:
         oid = item['orderId']
         qty = item['cantidad']
-        order = q(f"SELECT * FROM orders WHERE id={ph}", (oid,), fetch='one')
+        order = q(f"SELECT * FROM mape_orders WHERE id={ph}", (oid,), fetch='one')
         if not order:
             continue
         real = min(qty, order['pendiente'])
         new_entregado = order['entregado'] + real
         new_pendiente = max(0, order['pendiente'] - real)
-        run(f"UPDATE orders SET entregado={ph}, pendiente={ph} WHERE id={ph}",
+        run(f"UPDATE mape_orders SET entregado={ph}, pendiente={ph} WHERE id={ph}",
             (new_entregado, new_pendiente, oid))
 
     if monto > 0:
-        q(f"INSERT INTO account (fecha,detalle,acredita) VALUES ({ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}",
+        q(f"INSERT INTO mape_account (fecha,detalle,acredita) VALUES ({ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}",
           (fecha, detalle, monto), fetch='id')
 
     return jsonify({'ok': True})
