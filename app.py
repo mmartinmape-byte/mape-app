@@ -449,6 +449,16 @@ def init_db():
             """)
         conn.commit()
 
+        # Migración: agregar columna estado si no existe
+        try:
+            if pg:
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'iniciado'")
+            else:
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN estado TEXT DEFAULT 'iniciado'")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
         # Seed if empty
         cur.execute("SELECT COUNT(*) FROM mape_products")
         r = cur.fetchone()
@@ -474,6 +484,10 @@ def init_db():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/mobile')
+def mobile():
+    return render_template('mobile.html')
 
 
 # Products
@@ -530,9 +544,26 @@ def update_order(oid):
     pendiente = max(0, cant - entregado)
     run(f"""
         UPDATE mape_orders SET fecha={ph},producto={ph},cantidad={ph},entregado={ph},pendiente={ph},
-        precio={ph},urgencia={ph},notas={ph},fecha_esperada={ph} WHERE id={ph}
+        precio={ph},urgencia={ph},notas={ph},fecha_esperada={ph},estado={ph} WHERE id={ph}
     """, (d.get('fecha'), d['producto'], cant, entregado, pendiente,
-          d.get('precio', 0), d.get('urgencia'), d.get('notas',''), d.get('fechaEsperada'), oid))
+          d.get('precio', 0), d.get('urgencia'), d.get('notas',''),
+          d.get('fechaEsperada'), d.get('estado','iniciado'), oid))
+    return jsonify(q(f"SELECT * FROM mape_orders WHERE id={ph}", (oid,), fetch='one'))
+
+@app.route('/api/orders/<int:oid>/estado', methods=['PATCH'])
+def patch_order_estado(oid):
+    """Actualización rápida de estado y/o fecha_esperada (para la vista mobile)."""
+    d = request.json
+    ph = '%s' if USE_PG else '?'
+    fields, vals = [], []
+    if 'estado' in d:
+        fields.append(f"estado={ph}"); vals.append(d['estado'])
+    if 'fechaEsperada' in d:
+        fields.append(f"fecha_esperada={ph}"); vals.append(d['fechaEsperada'])
+    if not fields:
+        return jsonify({'ok': False, 'error': 'Nada que actualizar'}), 400
+    vals.append(oid)
+    run(f"UPDATE mape_orders SET {', '.join(fields)} WHERE id={ph}", vals)
     return jsonify(q(f"SELECT * FROM mape_orders WHERE id={ph}", (oid,), fetch='one'))
 
 @app.route('/api/orders/<int:oid>', methods=['DELETE'])

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>MAPE · Pedidos</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: Arial, sans-serif; background:#f3f4f6; }
+
+  .estado-btn {
+    flex:1; padding:8px 4px; border-radius:8px; font-size:0.78rem; font-weight:600;
+    border:2px solid transparent; cursor:pointer; text-align:center; transition:all 0.15s;
+    background:#e5e7eb; color:#6b7280;
+  }
+  .estado-btn.active-iniciado   { background:#dbeafe; color:#1d4ed8; border-color:#3b82f6; }
+  .estado-btn.active-herreria   { background:#fef3c7; color:#92400e; border-color:#f59e0b; }
+  .estado-btn.active-pintura    { background:#ede9fe; color:#5b21b6; border-color:#8b5cf6; }
+  .estado-btn.active-listo      { background:#d1fae5; color:#065f46; border-color:#10b981; }
+
+  .badge-alta   { background:#fee2e2; color:#991b1b; }
+  .badge-media  { background:#fef3c7; color:#92400e; }
+  .badge-baja   { background:#d1fae5; color:#065f46; }
+
+  .filtro-tab { padding:8px 14px; border-radius:20px; font-size:0.82rem; font-weight:600;
+                cursor:pointer; border:none; background:#e5e7eb; color:#6b7280; }
+  .filtro-tab.active { background:#2563eb; color:#fff; }
+
+  .card { background:#fff; border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,0.09); padding:16px; margin-bottom:12px; }
+
+  input[type=date] { border:1px solid #d1d5db; border-radius:8px; padding:6px 10px;
+                     font-size:0.85rem; color:#374151; width:100%; }
+
+  .spinner { border:3px solid #e5e7eb; border-top:3px solid #2563eb; border-radius:50%;
+             width:28px; height:28px; animation:spin 0.7s linear infinite; margin:40px auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  select { border:1px solid #d1d5db; border-radius:8px; padding:6px 10px; font-size:0.85rem; width:100%; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="bg-white shadow-sm sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
+  <div>
+    <h1 class="text-lg font-bold text-gray-800">MAPE · Pedidos</h1>
+    <p class="text-xs text-gray-400" id="subtitulo">Cargando...</p>
+  </div>
+  <button onclick="loadOrders()" class="text-blue-600 text-sm font-semibold">↻ Actualizar</button>
+</div>
+
+<!-- Filtros -->
+<div class="px-4 pt-3 pb-1 flex gap-2 overflow-x-auto">
+  <button class="filtro-tab active" onclick="setFiltro('pendiente',this)">Pendientes</button>
+  <button class="filtro-tab" onclick="setFiltro('iniciado',this)">Iniciado</button>
+  <button class="filtro-tab" onclick="setFiltro('herreria',this)">Herrería</button>
+  <button class="filtro-tab" onclick="setFiltro('pintura',this)">Pintura</button>
+  <button class="filtro-tab" onclick="setFiltro('listo',this)">Listo</button>
+  <button class="filtro-tab" onclick="setFiltro('todos',this)">Todos</button>
+</div>
+
+<!-- Buscar -->
+<div class="px-4 pt-2 pb-1">
+  <input type="text" id="buscar" placeholder="🔍 Buscar producto..."
+    oninput="renderCards()"
+    style="width:100%;border:1px solid #d1d5db;border-radius:10px;padding:9px 14px;font-size:0.9rem">
+</div>
+
+<!-- Lista -->
+<div class="px-4 pt-2 pb-20" id="lista">
+  <div class="spinner"></div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded-full hidden z-50 shadow-lg"></div>
+
+<script>
+let orders = [];
+let filtro = 'pendiente';
+
+const ESTADOS = [
+  { key:'iniciado', label:'Iniciado',       cls:'active-iniciado' },
+  { key:'herreria', label:'Herrería',       cls:'active-herreria' },
+  { key:'pintura',  label:'Pintura',        cls:'active-pintura'  },
+  { key:'listo',    label:'✓ Listo',        cls:'active-listo'    },
+];
+
+const fmtFecha = f => f ? new Date(f+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) : '—';
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 2000);
+}
+
+async function loadOrders() {
+  document.getElementById('lista').innerHTML = '<div class="spinner"></div>';
+  const res = await fetch('/api/orders');
+  orders = await res.json();
+  renderCards();
+}
+
+function setFiltro(f, btn) {
+  filtro = f;
+  document.querySelectorAll('.filtro-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCards();
+}
+
+function renderCards() {
+  const buscar = (document.getElementById('buscar').value||'').toLowerCase();
+  let list = [...orders];
+
+  if (filtro === 'pendiente') list = list.filter(o => o.pendiente > 0);
+  else if (filtro === 'todos') { /* sin filtro */ }
+  else list = list.filter(o => (o.estado||'iniciado') === filtro);
+
+  if (buscar) list = list.filter(o => o.producto.toLowerCase().includes(buscar));
+
+  // Orden: alta urgencia primero, luego por id desc
+  list.sort((a,b) => {
+    const urgOrd = {alta:0, media:1, baja:2, '':3, null:3};
+    const ua = urgOrd[a.urgencia||''] ?? 3;
+    const ub = urgOrd[b.urgencia||''] ?? 3;
+    return ua !== ub ? ua - ub : b.id - a.id;
+  });
+
+  const subtitulo = document.getElementById('subtitulo');
+  subtitulo.textContent = `${list.length} pedido${list.length!==1?'s':''}`;
+
+  if (!list.length) {
+    document.getElementById('lista').innerHTML =
+      '<p class="text-center text-gray-400 mt-12 text-sm">No hay pedidos que mostrar.</p>';
+    return;
+  }
+
+  document.getElementById('lista').innerHTML = list.map(o => cardHTML(o)).join('');
+}
+
+function cardHTML(o) {
+  const estado = o.estado || 'iniciado';
+  const urgencia = o.urgencia;
+  const urgBadge = urgencia
+    ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full badge-${urgencia}">${urgencia[0].toUpperCase()+urgencia.slice(1)}</span>`
+    : '';
+  const estadoBtns = ESTADOS.map(e =>
+    `<button class="estado-btn ${estado===e.key?'active-'+e.key:''}"
+       onclick="cambiarEstado(${o.id},'${e.key}',this)">${e.label}</button>`
+  ).join('');
+
+  const pendBadge = o.pendiente > 0
+    ? `<span class="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">${o.pendiente} pend.</span>`
+    : `<span class="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">✓ Entregado</span>`;
+
+  return `
+  <div class="card" id="card-${o.id}">
+    <div class="flex items-start justify-between gap-2 mb-3">
+      <div class="flex-1 min-w-0">
+        <p class="font-bold text-gray-800 text-base leading-snug">${o.producto}</p>
+        <div class="flex items-center gap-2 mt-1 flex-wrap">
+          <span class="text-sm text-gray-500">Cant: <strong>${o.cantidad}</strong></span>
+          ${pendBadge}
+          ${urgBadge}
+        </div>
+      </div>
+    </div>
+
+    <!-- Fecha esperada -->
+    <div class="mb-3">
+      <label class="block text-xs text-gray-500 mb-1 font-medium">📅 Fecha estimada de entrega</label>
+      <input type="date" id="fecha-${o.id}" value="${o.fecha_esperada||''}"
+        onchange="cambiarFecha(${o.id},this.value)">
+    </div>
+
+    <!-- Estado -->
+    <div>
+      <label class="block text-xs text-gray-500 mb-1 font-medium">Estado</label>
+      <div class="flex gap-1.5" id="estado-btns-${o.id}">${estadoBtns}</div>
+    </div>
+  </div>`;
+}
+
+async function cambiarEstado(id, nuevoEstado, btn) {
+  // Update UI optimistically
+  const container = document.getElementById(`estado-btns-${id}`);
+  container.querySelectorAll('.estado-btn').forEach(b => {
+    ESTADOS.forEach(e => b.classList.remove('active-'+e.key));
+  });
+  btn.classList.add('active-'+nuevoEstado);
+
+  // Update local state
+  const order = orders.find(o => o.id === id);
+  if (order) order.estado = nuevoEstado;
+
+  await fetch(`/api/orders/${id}/estado`, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({estado: nuevoEstado})
+  });
+  toast('Estado actualizado ✓');
+}
+
+async function cambiarFecha(id, nuevaFecha) {
+  const order = orders.find(o => o.id === id);
+  if (order) order.fecha_esperada = nuevaFecha;
+
+  await fetch(`/api/orders/${id}/estado`, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({fechaEsperada: nuevaFecha||null})
+  });
+  toast('Fecha actualizada ✓');
+}
+
+loadOrders();
+</script>
+</body>
+</html>
