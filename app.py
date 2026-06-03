@@ -445,9 +445,9 @@ def init_db():
         conn.commit()
 
         # Seed if empty
-        cur.execute("SELECT COUNT(*) as cnt FROM products")
+        cur.execute("SELECT COUNT(*) FROM products")
         r = cur.fetchone()
-        count = r[0] if not pg else dict(r)['cnt']
+        count = r[0]
         if count == 0:
             for nombre, precio in PRODUCTS_SEED:
                 cur.execute(f"INSERT INTO products (nombre, precio) VALUES ({ph},{ph})", (nombre, precio))
