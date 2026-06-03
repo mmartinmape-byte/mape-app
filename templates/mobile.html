@@ -13,6 +13,7 @@
     border:2px solid transparent; cursor:pointer; text-align:center; transition:all 0.15s;
     background:#e5e7eb; color:#6b7280;
   }
+  .estado-btn.active-espera     { background:#f3f4f6; color:#374151; border-color:#9ca3af; }
   .estado-btn.active-iniciado   { background:#dbeafe; color:#1d4ed8; border-color:#3b82f6; }
   .estado-btn.active-herreria   { background:#fef3c7; color:#92400e; border-color:#f59e0b; }
   .estado-btn.active-pintura    { background:#ede9fe; color:#5b21b6; border-color:#8b5cf6; }
@@ -52,6 +53,7 @@
 <!-- Filtros -->
 <div class="px-4 pt-3 pb-1 flex gap-2 overflow-x-auto">
   <button class="filtro-tab active" onclick="setFiltro('pendiente',this)">Pendientes</button>
+  <button class="filtro-tab" onclick="setFiltro('espera',this)">En espera</button>
   <button class="filtro-tab" onclick="setFiltro('iniciado',this)">Iniciado</button>
   <button class="filtro-tab" onclick="setFiltro('herreria',this)">Herrería</button>
   <button class="filtro-tab" onclick="setFiltro('pintura',this)">Pintura</button>
@@ -81,6 +83,7 @@ let filtro = 'pendiente';
 const MAPE_WA = '5491132565719';
 
 const ESTADOS = [
+  { key:'espera',   label:'En espera',      cls:'active-espera'   },
   { key:'iniciado', label:'Iniciado',       cls:'active-iniciado' },
   { key:'herreria', label:'Herrería',       cls:'active-herreria' },
   { key:'pintura',  label:'Pintura',        cls:'active-pintura'  },

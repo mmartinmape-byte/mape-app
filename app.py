@@ -547,7 +547,7 @@ def update_order(oid):
         precio={ph},urgencia={ph},notas={ph},fecha_esperada={ph},estado={ph} WHERE id={ph}
     """, (d.get('fecha'), d['producto'], cant, entregado, pendiente,
           d.get('precio', 0), d.get('urgencia'), d.get('notas',''),
-          d.get('fechaEsperada'), d.get('estado','iniciado'), oid))
+          d.get('fechaEsperada'), d.get('estado','espera'), oid))
     return jsonify(q(f"SELECT * FROM mape_orders WHERE id={ph}", (oid,), fetch='one'))
 
 @app.route('/api/orders/<int:oid>/estado', methods=['PATCH'])
