@@ -452,9 +452,9 @@ def init_db():
         # Migración: agregar columna estado si no existe
         try:
             if pg:
-                cur.execute("ALTER TABLE mape_orders ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'iniciado'")
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'espera'")
             else:
-                cur.execute("ALTER TABLE mape_orders ADD COLUMN estado TEXT DEFAULT 'iniciado'")
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN estado TEXT DEFAULT 'espera'")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -528,10 +528,10 @@ def create_order():
     ph = '%s' if USE_PG else '?'
     cantidad = d['cantidad']
     rid = q(f"""
-        INSERT INTO mape_orders (fecha,producto,cantidad,entregado,pendiente,precio,urgencia,notas,fecha_esperada)
-        VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}
+        INSERT INTO mape_orders (fecha,producto,cantidad,entregado,pendiente,precio,urgencia,notas,fecha_esperada,estado)
+        VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}
     """, (d.get('fecha'), d['producto'], cantidad, 0, cantidad,
-          d.get('precio', 0), d.get('urgencia'), d.get('notas',''), d.get('fechaEsperada')),
+          d.get('precio', 0), d.get('urgencia'), d.get('notas',''), d.get('fechaEsperada'), 'espera'),
          fetch='id')
     return jsonify(q(f"SELECT * FROM mape_orders WHERE id={ph}", (rid,), fetch='one'))
 
@@ -591,6 +591,21 @@ def delete_account(aid):
     ph = '%s' if USE_PG else '?'
     run(f"DELETE FROM mape_account WHERE id={ph}", (aid,))
     return jsonify({'ok': True})
+
+
+# Resumen por producto
+@app.route('/api/resumen-productos', methods=['GET'])
+def resumen_productos():
+    rows = q("""
+        SELECT producto,
+               SUM(cantidad)  AS total_pedido,
+               SUM(entregado) AS total_entregado,
+               SUM(pendiente) AS total_pendiente
+        FROM mape_orders
+        GROUP BY producto
+        ORDER BY SUM(pendiente) DESC, producto
+    """)
+    return jsonify(rows)
 
 
 # Remito (composite)
