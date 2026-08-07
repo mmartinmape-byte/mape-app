@@ -91,6 +91,7 @@ const ESTADOS = [
 ];
 
 const fmtFecha = f => f ? new Date(f+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) : '—';
+const fmtFechaFull = f => f ? new Date(f+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
 
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -168,6 +169,7 @@ function cardHTML(o) {
           ${pendBadge}
           ${urgBadge}
         </div>
+        <p class="text-xs text-gray-400 mt-1">🗓️ Pedido: ${fmtFechaFull(o.fecha)}</p>
       </div>
     </div>
 
