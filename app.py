@@ -459,6 +459,16 @@ def init_db():
         except Exception:
             conn.rollback()
 
+        # Migración: agregar columna fabricar (marca "fabricar esta semana")
+        try:
+            if pg:
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN IF NOT EXISTS fabricar INTEGER DEFAULT 0")
+            else:
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN fabricar INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
         # Seed if empty
         cur.execute("SELECT COUNT(*) FROM mape_products")
         r = cur.fetchone()
@@ -560,6 +570,8 @@ def patch_order_estado(oid):
         fields.append(f"estado={ph}"); vals.append(d['estado'])
     if 'fechaEsperada' in d:
         fields.append(f"fecha_esperada={ph}"); vals.append(d['fechaEsperada'])
+    if 'fabricar' in d:
+        fields.append(f"fabricar={ph}"); vals.append(1 if d['fabricar'] else 0)
     if not fields:
         return jsonify({'ok': False, 'error': 'Nada que actualizar'}), 400
     vals.append(oid)

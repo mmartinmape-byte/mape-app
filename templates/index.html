@@ -89,6 +89,18 @@
         <h2 class="text-2xl font-bold text-gray-800">Pedidos</h2>
         <button class="btn btn-primary" onclick="showView('nuevo-pedido')">+ Nuevo Pedido</button>
       </div>
+      <div id="fab-summary" class="card mb-4 hidden" style="border-left:4px solid #f59e0b">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p class="font-bold text-gray-800">🏭 Para fabricar esta semana: <span id="fab-count-desk">0</span> pedidos</p>
+            <p class="text-xs text-gray-500">Marcá los pedidos con el check 🏭. Listos para el finde <span id="fab-finde"></span>.</p>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" onclick="vaciarFabricarDesk()">Vaciar</button>
+            <button class="btn btn-sm" style="background:#16a34a;color:#fff" onclick="enviarListaFabricarDesk()">📲 Enviar lista a MAPE</button>
+          </div>
+        </div>
+      </div>
       <div class="card mb-4">
         <div class="flex gap-4 flex-wrap items-end">
           <div>
@@ -119,6 +131,7 @@
         <table class="w-full text-sm">
           <thead class="bg-gray-50 border-b">
             <tr>
+              <th class="text-center p-3 text-gray-600" title="Fabricar esta semana">🏭</th>
               <th class="text-left p-3 text-gray-600">Fecha</th>
               <th class="text-left p-3 text-gray-600">Producto</th>
               <th class="text-center p-3 text-gray-600">Cant.</th>
@@ -397,7 +410,15 @@ let products = [], orders = [], account = [];
 const remitoItems = {};
 
 // ── Utils ────────────────────────────────────────────────────────────────────
+const MAPE_WA = '5491132565719';
 const fmt = n => n == null ? '-' : '$' + Number(n).toLocaleString('es-AR', {minimumFractionDigits:0,maximumFractionDigits:0});
+// Fecha del finde de la semana SIGUIENTE (los pedidos del viernes van para ese finde)
+function proxFinde() {
+  const d = new Date();
+  const daysToSat = (6 - d.getDay() + 7) % 7;   // 0 si hoy es sábado
+  d.setDate(d.getDate() + daysToSat + 7);        // el finde de la semana que viene
+  return d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'});
+}
 const fmtFecha = f => f ? new Date(f + 'T00:00:00').toLocaleDateString('es-AR') : '-';
 const today = () => new Date().toISOString().split('T')[0];
 const urgBadge = u => {
@@ -621,12 +642,14 @@ function renderPedidos() {
   else if (urgencia) list = list.filter(o => o.urgencia === urgencia);
   if (buscar) list = list.filter(o => o.producto.toLowerCase().includes(buscar));
 
+  renderFabResumen();
   const tbody = document.getElementById('tabla-pedidos');
   const empty = document.getElementById('pedidos-empty');
   if (!list.length) { tbody.innerHTML=''; empty.classList.remove('hidden'); return; }
   empty.classList.add('hidden');
   tbody.innerHTML = list.map(o => `
     <tr class="table-row border-b">
+      <td class="p-3 text-center">${o.pendiente>0?`<input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricarDesk(${o.id}, this.checked)" title="Fabricar esta semana" style="width:18px;height:18px;accent-color:#f59e0b;cursor:pointer">`:''}</td>
       <td class="p-3 text-gray-600 whitespace-nowrap">${fmtFecha(o.fecha)}</td>
       <td class="p-3">
         <div class="font-medium text-gray-800">${o.producto}</div>
@@ -643,6 +666,48 @@ function renderPedidos() {
         <button class="btn btn-sm btn-danger" onclick="eliminarPedido(${o.id})">🗑️</button>
       </td>
     </tr>`).join('');
+}
+
+// ── Fabricar esta semana ──────────────────────────────────────────────────────
+function renderFabResumen() {
+  const marcados = orders.filter(o => o.fabricar);
+  document.getElementById('fab-count-desk').textContent = marcados.length;
+  document.getElementById('fab-finde').textContent = proxFinde();
+  document.getElementById('fab-summary').classList.toggle('hidden', marcados.length === 0);
+}
+
+async function toggleFabricarDesk(id, checked) {
+  const o = orders.find(x => x.id === id);
+  if (o) o.fabricar = checked ? 1 : 0;
+  renderFabResumen();
+  await api('PATCH', `/api/orders/${id}/estado`, {fabricar: checked ? 1 : 0});
+}
+
+function enviarListaFabricarDesk() {
+  let list = orders.filter(o => o.fabricar);
+  if (!list.length) { alert('No hay pedidos marcados para fabricar.'); return; }
+  const urgOrd = {alta:0, media:1, baja:2};
+  list.sort((a,b) => {
+    const ua = urgOrd[a.urgencia] ?? 3, ub = urgOrd[b.urgencia] ?? 3;
+    return ua !== ub ? ua - ub : a.producto.localeCompare(b.producto);
+  });
+  const lineas = list.map((o,i) => {
+    const cant = o.pendiente > 0 ? o.pendiente : o.cantidad;
+    return `${i+1}. ${o.producto} — ${cant}`;
+  }).join('\n');
+  const msg = `Hola MAPE! Estos son los pedidos para fabricar esta semana (listos para el finde ${proxFinde()}):\n\n${lineas}\n\nTotal: ${list.length} ${list.length===1?'pedido':'pedidos'}. Gracias!`;
+  window.open(`https://wa.me/${MAPE_WA}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+async function vaciarFabricarDesk() {
+  const list = orders.filter(o => o.fabricar);
+  if (!list.length) return;
+  if (!confirm(`¿Vaciar la lista de fabricación (${list.length} ${list.length===1?'pedido':'pedidos'})?`)) return;
+  for (const o of list) {
+    o.fabricar = 0;
+    await api('PATCH', `/api/orders/${o.id}/estado`, {fabricar: 0});
+  }
+  renderPedidos();
 }
 
 function editarPedido(id) {

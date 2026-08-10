@@ -37,6 +37,20 @@
   @keyframes spin { to { transform:rotate(360deg); } }
 
   select { border:1px solid #d1d5db; border-radius:8px; padding:6px 10px; font-size:0.85rem; width:100%; }
+
+  .fab-check { display:flex; align-items:center; gap:8px; padding:9px 11px; border-radius:10px;
+               background:#f3f4f6; color:#6b7280; font-size:0.82rem; font-weight:600;
+               cursor:pointer; margin-bottom:12px; border:2px solid transparent; }
+  .fab-check.on { background:#fff7ed; color:#9a3412; border-color:#f59e0b; }
+  .fab-check input { width:18px; height:18px; accent-color:#f59e0b; flex-shrink:0; }
+
+  .fab-bar { position:fixed; left:0; right:0; bottom:0; z-index:40;
+             background:#fff; border-top:1px solid #e5e7eb; box-shadow:0 -2px 8px rgba(0,0,0,0.08);
+             padding:10px 14px calc(10px + env(safe-area-inset-bottom)); display:flex; gap:8px; align-items:center; }
+  .fab-bar-send { flex:1; background:#16a34a; color:#fff; border:none; border-radius:12px;
+                  padding:12px; font-size:0.9rem; font-weight:700; cursor:pointer; }
+  .fab-bar-clear { background:#f3f4f6; color:#6b7280; border:none; border-radius:12px;
+                   padding:12px 14px; font-size:0.85rem; font-weight:600; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -53,6 +67,7 @@
 <!-- Filtros -->
 <div class="px-4 pt-3 pb-1 flex gap-2 overflow-x-auto">
   <button class="filtro-tab active" onclick="setFiltro('pendiente',this)">Pendientes</button>
+  <button class="filtro-tab" onclick="setFiltro('fabricar',this)">🏭 Fabricar</button>
   <button class="filtro-tab" onclick="setFiltro('espera',this)">En espera</button>
   <button class="filtro-tab" onclick="setFiltro('iniciado',this)">Iniciado</button>
   <button class="filtro-tab" onclick="setFiltro('herreria',this)">Herrería</button>
@@ -71,6 +86,12 @@
 <!-- Lista -->
 <div class="px-4 pt-2 pb-20" id="lista">
   <div class="spinner"></div>
+</div>
+
+<!-- Barra inferior: enviar lista a fabricar -->
+<div id="fab-bar" class="fab-bar" style="display:none">
+  <button class="fab-bar-clear" onclick="vaciarFabricar()">Vaciar</button>
+  <button class="fab-bar-send" onclick="enviarListaFabricar()">🏭 Enviar lista (<span id="fab-count">0</span>) a MAPE</button>
 </div>
 
 <!-- Toast -->
@@ -119,6 +140,7 @@ function renderCards() {
   let list = [...orders];
 
   if (filtro === 'pendiente') list = list.filter(o => o.pendiente > 0);
+  else if (filtro === 'fabricar') list = list.filter(o => o.fabricar);
   else if (filtro === 'todos') { /* sin filtro */ }
   else list = list.filter(o => (o.estado||'iniciado') === filtro);
 
@@ -142,6 +164,23 @@ function renderCards() {
   }
 
   document.getElementById('lista').innerHTML = list.map(o => cardHTML(o)).join('');
+  renderFabBar();
+}
+
+// Fecha del finde de la semana SIGUIENTE (los pedidos del viernes van para ese finde)
+function proxFinde() {
+  const d = new Date();
+  const daysToSat = (6 - d.getDay() + 7) % 7;   // 0 si hoy es sábado
+  d.setDate(d.getDate() + daysToSat + 7);        // el finde de la semana que viene
+  return d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'});
+}
+
+function renderFabBar() {
+  const n = orders.filter(o => o.fabricar).length;
+  const bar = document.getElementById('fab-bar');
+  document.getElementById('fab-count').textContent = n;
+  bar.style.display = n > 0 ? 'flex' : 'none';
+  document.getElementById('lista').style.paddingBottom = n > 0 ? '90px' : '';
 }
 
 function cardHTML(o) {
@@ -187,6 +226,12 @@ function cardHTML(o) {
     </div>
 
     ${o.pendiente > 0 ? `
+    <!-- Fabricar esta semana -->
+    <label class="fab-check ${o.fabricar?'on':''}">
+      <input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricar(${o.id}, this.checked)">
+      🏭 Fabricar esta semana
+    </label>
+
     <!-- WhatsApp -->
     <a href="${waLink(o)}" target="_blank"
        class="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-semibold text-sm"
@@ -238,6 +283,60 @@ async function cambiarFecha(id, nuevaFecha) {
     body: JSON.stringify({fechaEsperada: nuevaFecha||null})
   });
   toast('Fecha actualizada ✓');
+}
+
+async function toggleFabricar(id, checked) {
+  const order = orders.find(o => o.id === id);
+  if (order) order.fabricar = checked ? 1 : 0;
+
+  const label = document.querySelector(`#card-${id} .fab-check`);
+  if (label) label.classList.toggle('on', checked);
+
+  // Si estoy viendo la lista de fabricar y lo destildo, sale de la vista
+  if (filtro === 'fabricar' && !checked) renderCards();
+  else renderFabBar();
+
+  await fetch(`/api/orders/${id}/estado`, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({fabricar: checked ? 1 : 0})
+  });
+  toast(checked ? 'Agregado a fabricar 🏭' : 'Quitado de la lista');
+}
+
+function enviarListaFabricar() {
+  let list = orders.filter(o => o.fabricar);
+  if (!list.length) { toast('No hay pedidos marcados'); return; }
+
+  const urgOrd = {alta:0, media:1, baja:2};
+  list.sort((a,b) => {
+    const ua = urgOrd[a.urgencia] ?? 3, ub = urgOrd[b.urgencia] ?? 3;
+    return ua !== ub ? ua - ub : a.producto.localeCompare(b.producto);
+  });
+
+  const lineas = list.map((o,i) => {
+    const cant = o.pendiente > 0 ? o.pendiente : o.cantidad;
+    return `${i+1}. ${o.producto} — ${cant}`;
+  }).join('\n');
+
+  const msg = `Hola MAPE! Estos son los pedidos para fabricar esta semana (listos para el finde ${proxFinde()}):\n\n${lineas}\n\nTotal: ${list.length} ${list.length===1?'pedido':'pedidos'}. Gracias!`;
+  window.open(`https://wa.me/${MAPE_WA}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+async function vaciarFabricar() {
+  const list = orders.filter(o => o.fabricar);
+  if (!list.length) return;
+  if (!confirm(`¿Vaciar la lista de fabricación (${list.length} ${list.length===1?'pedido':'pedidos'})?`)) return;
+  for (const o of list) {
+    o.fabricar = 0;
+    await fetch(`/api/orders/${o.id}/estado`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fabricar: 0})
+    });
+  }
+  renderCards();
+  toast('Lista vaciada');
 }
 
 loadOrders();
