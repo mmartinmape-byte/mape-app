@@ -571,7 +571,9 @@ def patch_order_estado(oid):
     if 'fechaEsperada' in d:
         fields.append(f"fecha_esperada={ph}"); vals.append(d['fechaEsperada'])
     if 'fabricar' in d:
-        fields.append(f"fabricar={ph}"); vals.append(1 if d['fabricar'] else 0)
+        # fabricar = cantidad a fabricar (0 = no marcado, >0 = marcado con esa cantidad)
+        val = d['fabricar']
+        fields.append(f"fabricar={ph}"); vals.append(int(val) if val else 0)
     if not fields:
         return jsonify({'ok': False, 'error': 'Nada que actualizar'}), 400
     vals.append(oid)

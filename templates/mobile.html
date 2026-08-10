@@ -41,16 +41,26 @@
   .fab-check { display:flex; align-items:center; gap:8px; padding:9px 11px; border-radius:10px;
                background:#f3f4f6; color:#6b7280; font-size:0.82rem; font-weight:600;
                cursor:pointer; margin-bottom:12px; border:2px solid transparent; }
-  .fab-check.on { background:#fff7ed; color:#9a3412; border-color:#f59e0b; }
+  .fab-check.on { background:#fff7ed; color:#9a3412; border-color:#f59e0b;
+                  margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0; }
   .fab-check input { width:18px; height:18px; accent-color:#f59e0b; flex-shrink:0; }
 
   .fab-bar { position:fixed; left:0; right:0; bottom:0; z-index:40;
              background:#fff; border-top:1px solid #e5e7eb; box-shadow:0 -2px 8px rgba(0,0,0,0.08);
-             padding:10px 14px calc(10px + env(safe-area-inset-bottom)); display:flex; gap:8px; align-items:center; }
+             padding:10px 14px calc(10px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:8px; }
+  .fab-bar-top { display:flex; align-items:center; gap:8px; font-size:0.82rem; font-weight:600; color:#374151; }
+  .fab-bar-top input[type=date] { flex:1; }
+  .fab-bar-btns { display:flex; gap:8px; align-items:center; }
   .fab-bar-send { flex:1; background:#16a34a; color:#fff; border:none; border-radius:12px;
                   padding:12px; font-size:0.9rem; font-weight:700; cursor:pointer; }
   .fab-bar-clear { background:#f3f4f6; color:#6b7280; border:none; border-radius:12px;
                    padding:12px 14px; font-size:0.85rem; font-weight:600; cursor:pointer; }
+
+  .fab-qty { display:flex; align-items:center; gap:8px; margin:-6px 0 12px;
+             padding:8px 11px; background:#fff7ed; border:2px solid #f59e0b; border-top:none;
+             border-radius:0 0 10px 10px; font-size:0.8rem; color:#9a3412; font-weight:600; }
+  .fab-qty input { width:70px; border:1px solid #f59e0b; border-radius:8px; padding:5px 8px;
+                   font-size:0.9rem; text-align:center; accent-color:#f59e0b; }
 </style>
 </head>
 <body>
@@ -90,8 +100,14 @@
 
 <!-- Barra inferior: enviar lista a fabricar -->
 <div id="fab-bar" class="fab-bar" style="display:none">
-  <button class="fab-bar-clear" onclick="vaciarFabricar()">Vaciar</button>
-  <button class="fab-bar-send" onclick="enviarListaFabricar()">🏭 Enviar lista (<span id="fab-count">0</span>) a MAPE</button>
+  <div class="fab-bar-top">
+    <span>🗓️ Listos para:</span>
+    <input type="date" id="fab-finde-date">
+  </div>
+  <div class="fab-bar-btns">
+    <button class="fab-bar-clear" onclick="vaciarFabricar()">Vaciar</button>
+    <button class="fab-bar-send" onclick="enviarListaFabricar()">🏭 Enviar lista (<span id="fab-count">0</span>) a MAPE</button>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -168,19 +184,27 @@ function renderCards() {
 }
 
 // Fecha del finde de la semana SIGUIENTE (los pedidos del viernes van para ese finde)
-function proxFinde() {
+function proxFindeDate() {
   const d = new Date();
   const daysToSat = (6 - d.getDay() + 7) % 7;   // 0 si hoy es sábado
   d.setDate(d.getDate() + daysToSat + 7);        // el finde de la semana que viene
-  return d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'});
+  return d;
 }
+const proxFinde = () => proxFindeDate().toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'});
+function proxFindeISO() {
+  const d = proxFindeDate();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+const fmtFindeDMA = iso => iso ? new Date(iso+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) : proxFinde();
 
 function renderFabBar() {
   const n = orders.filter(o => o.fabricar).length;
   const bar = document.getElementById('fab-bar');
   document.getElementById('fab-count').textContent = n;
   bar.style.display = n > 0 ? 'flex' : 'none';
-  document.getElementById('lista').style.paddingBottom = n > 0 ? '90px' : '';
+  document.getElementById('lista').style.paddingBottom = n > 0 ? '150px' : '';
+  const dateInput = document.getElementById('fab-finde-date');
+  if (dateInput && !dateInput.value) dateInput.value = proxFindeISO();
 }
 
 function cardHTML(o) {
@@ -231,6 +255,13 @@ function cardHTML(o) {
       <input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricar(${o.id}, this.checked)">
       🏭 Fabricar esta semana
     </label>
+    ${o.fabricar ? `
+    <div class="fab-qty">
+      <span>Cantidad a fabricar:</span>
+      <input type="number" min="1" max="${o.pendiente}" value="${o.fabricar}"
+        onchange="cambiarCantFabricar(${o.id}, this)">
+      <span>de ${o.pendiente} pend.</span>
+    </div>` : ''}
 
     <!-- WhatsApp -->
     <a href="${waLink(o)}" target="_blank"
@@ -287,26 +318,39 @@ async function cambiarFecha(id, nuevaFecha) {
 
 async function toggleFabricar(id, checked) {
   const order = orders.find(o => o.id === id);
-  if (order) order.fabricar = checked ? 1 : 0;
+  const qty = checked ? (order ? order.pendiente : 1) : 0;
+  if (order) order.fabricar = qty;
 
-  const label = document.querySelector(`#card-${id} .fab-check`);
-  if (label) label.classList.toggle('on', checked);
-
-  // Si estoy viendo la lista de fabricar y lo destildo, sale de la vista
-  if (filtro === 'fabricar' && !checked) renderCards();
-  else renderFabBar();
+  // Re-render para mostrar/ocultar el campo de cantidad
+  renderCards();
 
   await fetch(`/api/orders/${id}/estado`, {
     method:'PATCH',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({fabricar: checked ? 1 : 0})
+    body: JSON.stringify({fabricar: qty})
   });
   toast(checked ? 'Agregado a fabricar 🏭' : 'Quitado de la lista');
+}
+
+async function cambiarCantFabricar(id, el) {
+  const order = orders.find(o => o.id === id);
+  let n = parseInt(el.value) || 0;
+  if (order) { n = Math.max(1, Math.min(n, order.pendiente)); order.fabricar = n; }
+  el.value = n;
+
+  await fetch(`/api/orders/${id}/estado`, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({fabricar: n})
+  });
+  toast('Cantidad actualizada ✓');
 }
 
 function enviarListaFabricar() {
   let list = orders.filter(o => o.fabricar);
   if (!list.length) { toast('No hay pedidos marcados'); return; }
+
+  const findeTxt = fmtFindeDMA(document.getElementById('fab-finde-date').value);
 
   const urgOrd = {alta:0, media:1, baja:2};
   list.sort((a,b) => {
@@ -314,12 +358,9 @@ function enviarListaFabricar() {
     return ua !== ub ? ua - ub : a.producto.localeCompare(b.producto);
   });
 
-  const lineas = list.map((o,i) => {
-    const cant = o.pendiente > 0 ? o.pendiente : o.cantidad;
-    return `${i+1}. ${o.producto} — ${cant}`;
-  }).join('\n');
+  const lineas = list.map((o,i) => `${i+1}. ${o.producto} — ${o.fabricar}`).join('\n');
 
-  const msg = `Hola MAPE! Estos son los pedidos para fabricar esta semana (listos para el finde ${proxFinde()}):\n\n${lineas}\n\nTotal: ${list.length} ${list.length===1?'pedido':'pedidos'}. Gracias!`;
+  const msg = `Hola MAPE! Estos son los pedidos para fabricar (listos para el finde ${findeTxt}):\n\n${lineas}\n\nTotal: ${list.length} ${list.length===1?'pedido':'pedidos'}. Gracias!`;
   window.open(`https://wa.me/${MAPE_WA}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
