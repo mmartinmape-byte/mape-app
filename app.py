@@ -641,8 +641,11 @@ def register_remito():
         real = min(qty, order['pendiente'])
         new_entregado = order['entregado'] + real
         new_pendiente = max(0, order['pendiente'] - real)
-        run(f"UPDATE mape_orders SET entregado={ph}, pendiente={ph} WHERE id={ph}",
-            (new_entregado, new_pendiente, oid))
+        # Al recibir, la marca "fabricar" baja junto con lo pendiente:
+        # si el pedido queda completo (pendiente 0) se desmarca solo de la lista 🏭.
+        new_fabricar = min(int(order.get('fabricar') or 0), new_pendiente)
+        run(f"UPDATE mape_orders SET entregado={ph}, pendiente={ph}, fabricar={ph} WHERE id={ph}",
+            (new_entregado, new_pendiente, new_fabricar, oid))
 
     if monto > 0:
         q(f"INSERT INTO mape_account (fecha,detalle,acredita) VALUES ({ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}",

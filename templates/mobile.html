@@ -174,8 +174,12 @@ function renderCards() {
   subtitulo.textContent = `${list.length} pedido${list.length!==1?'s':''}`;
 
   if (!list.length) {
+    const msg = filtro === 'fabricar'
+      ? '✅ No queda nada pendiente de fabricar/recibir.'
+      : 'No hay pedidos que mostrar.';
     document.getElementById('lista').innerHTML =
-      '<p class="text-center text-gray-400 mt-12 text-sm">No hay pedidos que mostrar.</p>';
+      `<p class="text-center text-gray-400 mt-12 text-sm">${msg}</p>`;
+    renderFabBar();
     return;
   }
 
