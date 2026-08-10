@@ -47,14 +47,13 @@
 
   .fab-bar { position:fixed; left:0; right:0; bottom:0; z-index:40;
              background:#fff; border-top:1px solid #e5e7eb; box-shadow:0 -2px 8px rgba(0,0,0,0.08);
-             padding:10px 14px calc(10px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:8px; }
-  .fab-bar-top { display:flex; align-items:center; gap:8px; font-size:0.82rem; font-weight:600; color:#374151; }
-  .fab-bar-top input[type=date] { flex:1; }
-  .fab-bar-btns { display:flex; gap:8px; align-items:center; }
+             padding:10px 14px calc(10px + env(safe-area-inset-bottom)); display:flex; gap:8px; align-items:center; }
   .fab-bar-send { flex:1; background:#16a34a; color:#fff; border:none; border-radius:12px;
                   padding:12px; font-size:0.9rem; font-weight:700; cursor:pointer; }
   .fab-bar-clear { background:#f3f4f6; color:#6b7280; border:none; border-radius:12px;
                    padding:12px 14px; font-size:0.85rem; font-weight:600; cursor:pointer; }
+  .fab-finde-badge { margin-left:auto; background:#f59e0b; color:#fff; font-size:0.72rem;
+                     font-weight:700; padding:2px 8px; border-radius:9999px; white-space:nowrap; }
 
   .fab-qty { display:flex; align-items:center; gap:8px; margin:-6px 0 12px;
              padding:8px 11px; background:#fff7ed; border:2px solid #f59e0b; border-top:none;
@@ -93,6 +92,13 @@
     style="width:100%;border:1px solid #d1d5db;border-radius:10px;padding:9px 14px;font-size:0.9rem">
 </div>
 
+<!-- Semana (finde) para fabricar -->
+<div id="finde-strip" class="px-4 pt-1 pb-1 flex items-center gap-2" style="display:none">
+  <span class="text-sm text-gray-500 font-medium whitespace-nowrap">🏭 Semana:</span>
+  <input type="date" id="fab-finde-date" onchange="cambiarFindeActual(this.value)"
+    style="border:1px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:0.85rem;color:#374151;flex:1;width:auto">
+</div>
+
 <!-- Lista -->
 <div class="px-4 pt-2 pb-20" id="lista">
   <div class="spinner"></div>
@@ -100,14 +106,8 @@
 
 <!-- Barra inferior: enviar lista a fabricar -->
 <div id="fab-bar" class="fab-bar" style="display:none">
-  <div class="fab-bar-top">
-    <span>🗓️ Listos para:</span>
-    <input type="date" id="fab-finde-date" onchange="guardarFinde(this.value)">
-  </div>
-  <div class="fab-bar-btns">
-    <button class="fab-bar-clear" onclick="vaciarFabricar()">Vaciar</button>
-    <button class="fab-bar-send" onclick="enviarListaFabricar()">🏭 Enviar lista (<span id="fab-count">0</span>) a MAPE</button>
-  </div>
+  <button class="fab-bar-clear" onclick="vaciarFabricar()">Vaciar</button>
+  <button class="fab-bar-send" onclick="enviarListaFabricar()">🏭 Enviar lista (<span id="fab-count">0</span>) a MAPE</button>
 </div>
 
 <!-- Toast -->
@@ -141,9 +141,17 @@ function toast(msg) {
 async function loadOrders() {
   document.getElementById('lista').innerHTML = '<div class="spinner"></div>';
   await cargarFinde();
+  const el = document.getElementById('fab-finde-date');
+  if (el && !el.value) el.value = findeGuardado || proxFindeISO();
   const res = await fetch('/api/orders');
   orders = await res.json();
   renderCards();
+}
+
+// Finde que estás viendo/armando (la semana activa)
+function findeActual() {
+  const el = document.getElementById('fab-finde-date');
+  return (el && el.value) || findeGuardado || proxFindeISO();
 }
 
 async function cargarFinde() {
@@ -161,8 +169,13 @@ async function guardarFinde(val) {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({valor: val || null})
     });
-    toast('Fecha guardada ✓');
   } catch (e) {}
+}
+
+async function cambiarFindeActual(val) {
+  await guardarFinde(val);
+  renderCards();   // re-scopea la lista/barra a la semana elegida
+  toast('Semana: ' + fmtFindeDMA(val) + ' ✓');
 }
 
 function setFiltro(f, btn) {
@@ -176,8 +189,12 @@ function renderCards() {
   const buscar = (document.getElementById('buscar').value||'').toLowerCase();
   let list = [...orders];
 
+  // El selector de semana solo importa al pedir/controlar fabricación
+  document.getElementById('finde-strip').style.display =
+    (filtro === 'pendiente' || filtro === 'fabricar') ? 'flex' : 'none';
+
   if (filtro === 'pendiente') list = list.filter(o => o.pendiente > 0);
-  else if (filtro === 'fabricar') list = list.filter(o => o.fabricar);
+  else if (filtro === 'fabricar') { const f = findeActual(); list = list.filter(o => o.fabricar && o.fabricar_finde === f); }
   else if (filtro === 'todos') { /* sin filtro */ }
   else list = list.filter(o => (o.estado||'iniciado') === filtro);
 
@@ -196,7 +213,7 @@ function renderCards() {
 
   if (!list.length) {
     const msg = filtro === 'fabricar'
-      ? '✅ No queda nada pendiente de fabricar/recibir.'
+      ? `✅ No queda nada pendiente para el finde ${fmtFindeDMA(findeActual())}.`
       : 'No hay pedidos que mostrar.';
     document.getElementById('lista').innerHTML =
       `<p class="text-center text-gray-400 mt-12 text-sm">${msg}</p>`;
@@ -223,13 +240,12 @@ function proxFindeISO() {
 const fmtFindeDMA = iso => iso ? new Date(iso+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) : proxFinde();
 
 function renderFabBar() {
-  const n = orders.filter(o => o.fabricar).length;
+  const f = findeActual();
+  const n = orders.filter(o => o.fabricar && o.fabricar_finde === f).length;
   const bar = document.getElementById('fab-bar');
   document.getElementById('fab-count').textContent = n;
   bar.style.display = n > 0 ? 'flex' : 'none';
-  document.getElementById('lista').style.paddingBottom = n > 0 ? '150px' : '';
-  const dateInput = document.getElementById('fab-finde-date');
-  if (dateInput && !dateInput.value) dateInput.value = findeGuardado || proxFindeISO();
+  document.getElementById('lista').style.paddingBottom = n > 0 ? '90px' : '';
 }
 
 function cardHTML(o) {
@@ -279,6 +295,7 @@ function cardHTML(o) {
     <label class="fab-check ${o.fabricar?'on':''}">
       <input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricar(${o.id}, this.checked)">
       🏭 Fabricar esta semana
+      ${o.fabricar && o.fabricar_finde ? `<span class="fab-finde-badge">→ ${fmtFindeDMA(o.fabricar_finde)}</span>` : ''}
     </label>
     ${o.fabricar ? `
     <div class="fab-qty">
@@ -343,8 +360,9 @@ async function cambiarFecha(id, nuevaFecha) {
 
 async function toggleFabricar(id, checked) {
   const order = orders.find(o => o.id === id);
+  const f = findeActual();
   const qty = checked ? (order ? order.pendiente : 1) : 0;
-  if (order) order.fabricar = qty;
+  if (order) { order.fabricar = qty; order.fabricar_finde = checked ? f : null; }
 
   // Re-render para mostrar/ocultar el campo de cantidad
   renderCards();
@@ -352,9 +370,9 @@ async function toggleFabricar(id, checked) {
   await fetch(`/api/orders/${id}/estado`, {
     method:'PATCH',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({fabricar: qty})
+    body: JSON.stringify({fabricar: qty, fabricarFinde: checked ? f : null})
   });
-  toast(checked ? 'Agregado a fabricar 🏭' : 'Quitado de la lista');
+  toast(checked ? `Agregado a fabricar (${fmtFindeDMA(f)}) 🏭` : 'Quitado de la lista');
 }
 
 async function cambiarCantFabricar(id, el) {
@@ -372,10 +390,11 @@ async function cambiarCantFabricar(id, el) {
 }
 
 function enviarListaFabricar() {
-  let list = orders.filter(o => o.fabricar);
-  if (!list.length) { toast('No hay pedidos marcados'); return; }
+  const f = findeActual();
+  let list = orders.filter(o => o.fabricar && o.fabricar_finde === f);
+  if (!list.length) { toast('No hay pedidos marcados para este finde'); return; }
 
-  const findeTxt = fmtFindeDMA(document.getElementById('fab-finde-date').value);
+  const findeTxt = fmtFindeDMA(f);
 
   const urgOrd = {alta:0, media:1, baja:2};
   list.sort((a,b) => {
@@ -390,15 +409,16 @@ function enviarListaFabricar() {
 }
 
 async function vaciarFabricar() {
-  const list = orders.filter(o => o.fabricar);
+  const f = findeActual();
+  const list = orders.filter(o => o.fabricar && o.fabricar_finde === f);
   if (!list.length) return;
-  if (!confirm(`¿Vaciar la lista de fabricación (${list.length} ${list.length===1?'pedido':'pedidos'})?`)) return;
+  if (!confirm(`¿Vaciar la lista del finde ${fmtFindeDMA(f)} (${list.length} ${list.length===1?'pedido':'pedidos'})?`)) return;
   for (const o of list) {
-    o.fabricar = 0;
+    o.fabricar = 0; o.fabricar_finde = null;
     await fetch(`/api/orders/${o.id}/estado`, {
       method:'PATCH',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({fabricar: 0})
+      body: JSON.stringify({fabricar: 0, fabricarFinde: null})
     });
   }
   renderCards();

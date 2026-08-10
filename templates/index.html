@@ -92,11 +92,8 @@
       <div id="fab-summary" class="card mb-4 hidden" style="border-left:4px solid #f59e0b">
         <div class="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <p class="font-bold text-gray-800">🏭 Para fabricar: <span id="fab-count-desk">0</span> pedidos</p>
-            <div class="flex items-center gap-2 mt-1">
-              <label class="text-xs text-gray-500">🗓️ Listos para el finde:</label>
-              <input type="date" id="fab-finde-date" style="width:160px" onchange="guardarFinde(this.value)">
-            </div>
+            <p class="font-bold text-gray-800">🏭 Para fabricar — finde <span id="fab-finde-lbl"></span>: <span id="fab-count-desk">0</span> pedidos</p>
+            <p class="text-xs text-gray-500">Elegí la semana en el filtro “🏭 Fabricar p/ finde”. Los pedidos completos se desmarcan al recibir.</p>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-secondary btn-sm" onclick="vaciarFabricarDesk()">Vaciar</button>
@@ -127,6 +124,10 @@
           <div>
             <label class="block text-xs text-gray-500 mb-1">Buscar</label>
             <input type="text" id="filtro-buscar" placeholder="Producto..." oninput="renderPedidos()" style="width:220px">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">🏭 Fabricar p/ finde</label>
+            <input type="date" id="fab-finde-date" onchange="cambiarFindeActualDesk(this.value)" style="width:160px">
           </div>
         </div>
       </div>
@@ -517,7 +518,13 @@ async function showView(v) {
     if (el.getAttribute('onclick') === `showView('${v}')`) el.classList.add('active');
   });
   if (v === 'dashboard') { await loadAll(); renderDashboard(); }
-  if (v === 'pedidos') { orders = await api('GET','/api/orders'); await cargarFinde(); renderPedidos(); }
+  if (v === 'pedidos') {
+    orders = await api('GET','/api/orders');
+    await cargarFinde();
+    const el = document.getElementById('fab-finde-date');
+    if (el && !el.value) el.value = findeGuardado || proxFindeISO();
+    renderPedidos();
+  }
   if (v === 'nuevo-pedido') { products = await api('GET','/api/products'); initFormPedido(); }
   if (v === 'remito') { orders = await api('GET','/api/orders'); renderRemito(); }
   if (v === 'cuenta') { account = await api('GET','/api/account'); renderCuenta(); }
@@ -659,7 +666,7 @@ function renderPedidos() {
   empty.classList.add('hidden');
   tbody.innerHTML = list.map(o => `
     <tr class="table-row border-b">
-      <td class="p-3 text-center">${o.pendiente>0?`<input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricarDesk(${o.id}, this.checked)" title="Fabricar esta semana" style="width:18px;height:18px;accent-color:#f59e0b;cursor:pointer">${o.fabricar?`<br><input type="number" min="1" max="${o.pendiente}" value="${o.fabricar}" onchange="cambiarCantFabricarDesk(${o.id}, this)" title="Cantidad a fabricar (de ${o.pendiente} pend.)" style="width:56px;margin-top:4px;text-align:center;padding:2px 4px;font-size:0.8rem;accent-color:#f59e0b">`:''}`:''}</td>
+      <td class="p-3 text-center">${o.pendiente>0?`<input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricarDesk(${o.id}, this.checked)" title="Fabricar esta semana" style="width:18px;height:18px;accent-color:#f59e0b;cursor:pointer">${o.fabricar?`<br><input type="number" min="1" max="${o.pendiente}" value="${o.fabricar}" onchange="cambiarCantFabricarDesk(${o.id}, this)" title="Cantidad a fabricar (de ${o.pendiente} pend.)" style="width:56px;margin-top:4px;text-align:center;padding:2px 4px;font-size:0.8rem;accent-color:#f59e0b">${o.fabricar_finde?`<br><span style="display:inline-block;margin-top:3px;background:#f59e0b;color:#fff;font-size:0.66rem;font-weight:700;padding:1px 6px;border-radius:9999px;white-space:nowrap">→ ${fmtFindeDMA(o.fabricar_finde)}</span>`:''}`:''}`:''}</td>
       <td class="p-3 text-gray-600 whitespace-nowrap">${fmtFecha(o.fecha)}</td>
       <td class="p-3">
         <div class="font-medium text-gray-800">${o.producto}</div>
@@ -680,11 +687,17 @@ function renderPedidos() {
 
 // ── Fabricar esta semana ──────────────────────────────────────────────────────
 function renderFabResumen() {
-  const marcados = orders.filter(o => o.fabricar);
+  const f = findeActualDesk();
+  const marcados = orders.filter(o => o.fabricar && o.fabricar_finde === f);
   document.getElementById('fab-count-desk').textContent = marcados.length;
+  document.getElementById('fab-finde-lbl').textContent = fmtFindeDMA(f);
   document.getElementById('fab-summary').classList.toggle('hidden', marcados.length === 0);
-  const di = document.getElementById('fab-finde-date');
-  if (di && !di.value) di.value = findeGuardado || proxFindeISO();
+}
+
+// Finde que estás viendo/armando (la semana activa)
+function findeActualDesk() {
+  const el = document.getElementById('fab-finde-date');
+  return (el && el.value) || findeGuardado || proxFindeISO();
 }
 
 async function cargarFinde() {
@@ -699,12 +712,18 @@ async function guardarFinde(val) {
   try { await api('PUT', '/api/settings/finde_objetivo', {valor: val || null}); } catch (e) {}
 }
 
+async function cambiarFindeActualDesk(val) {
+  await guardarFinde(val);
+  renderPedidos();   // re-scopea panel/lista a la semana elegida
+}
+
 async function toggleFabricarDesk(id, checked) {
   const o = orders.find(x => x.id === id);
+  const f = findeActualDesk();
   const qty = checked ? (o ? o.pendiente : 1) : 0;
-  if (o) o.fabricar = qty;
+  if (o) { o.fabricar = qty; o.fabricar_finde = checked ? f : null; }
   renderPedidos();   // re-render para mostrar/ocultar el campo de cantidad
-  await api('PATCH', `/api/orders/${id}/estado`, {fabricar: qty});
+  await api('PATCH', `/api/orders/${id}/estado`, {fabricar: qty, fabricarFinde: checked ? f : null});
 }
 
 async function cambiarCantFabricarDesk(id, el) {
@@ -716,9 +735,10 @@ async function cambiarCantFabricarDesk(id, el) {
 }
 
 function enviarListaFabricarDesk() {
-  let list = orders.filter(o => o.fabricar);
-  if (!list.length) { alert('No hay pedidos marcados para fabricar.'); return; }
-  const findeTxt = fmtFindeDMA(document.getElementById('fab-finde-date').value);
+  const f = findeActualDesk();
+  let list = orders.filter(o => o.fabricar && o.fabricar_finde === f);
+  if (!list.length) { alert('No hay pedidos marcados para este finde.'); return; }
+  const findeTxt = fmtFindeDMA(f);
   const urgOrd = {alta:0, media:1, baja:2};
   list.sort((a,b) => {
     const ua = urgOrd[a.urgencia] ?? 3, ub = urgOrd[b.urgencia] ?? 3;
@@ -730,12 +750,13 @@ function enviarListaFabricarDesk() {
 }
 
 async function vaciarFabricarDesk() {
-  const list = orders.filter(o => o.fabricar);
+  const f = findeActualDesk();
+  const list = orders.filter(o => o.fabricar && o.fabricar_finde === f);
   if (!list.length) return;
-  if (!confirm(`¿Vaciar la lista de fabricación (${list.length} ${list.length===1?'pedido':'pedidos'})?`)) return;
+  if (!confirm(`¿Vaciar la lista del finde ${fmtFindeDMA(f)} (${list.length} ${list.length===1?'pedido':'pedidos'})?`)) return;
   for (const o of list) {
-    o.fabricar = 0;
-    await api('PATCH', `/api/orders/${o.id}/estado`, {fabricar: 0});
+    o.fabricar = 0; o.fabricar_finde = null;
+    await api('PATCH', `/api/orders/${o.id}/estado`, {fabricar: 0, fabricarFinde: null});
   }
   renderPedidos();
 }

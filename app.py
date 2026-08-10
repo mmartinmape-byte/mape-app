@@ -469,6 +469,16 @@ def init_db():
         except Exception:
             conn.rollback()
 
+        # Migración: agregar columna fabricar_finde (finde objetivo por pedido)
+        try:
+            if pg:
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN IF NOT EXISTS fabricar_finde TEXT")
+            else:
+                cur.execute("ALTER TABLE mape_orders ADD COLUMN fabricar_finde TEXT")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
         # Tabla de configuración (clave/valor): guarda el finde objetivo, etc.
         try:
             cur.execute("CREATE TABLE IF NOT EXISTS mape_settings (clave TEXT PRIMARY KEY, valor TEXT)")
@@ -581,6 +591,9 @@ def patch_order_estado(oid):
         # fabricar = cantidad a fabricar (0 = no marcado, >0 = marcado con esa cantidad)
         val = d['fabricar']
         fields.append(f"fabricar={ph}"); vals.append(int(val) if val else 0)
+    if 'fabricarFinde' in d:
+        # finde objetivo del pedido (yyyy-mm-dd) o NULL al desmarcar
+        fields.append(f"fabricar_finde={ph}"); vals.append(d['fabricarFinde'] or None)
     if not fields:
         return jsonify({'ok': False, 'error': 'Nada que actualizar'}), 400
     vals.append(oid)
@@ -672,8 +685,12 @@ def register_remito():
         # Al recibir, la marca "fabricar" baja junto con lo pendiente:
         # si el pedido queda completo (pendiente 0) se desmarca solo de la lista 🏭.
         new_fabricar = min(int(order.get('fabricar') or 0), new_pendiente)
-        run(f"UPDATE mape_orders SET entregado={ph}, pendiente={ph}, fabricar={ph} WHERE id={ph}",
-            (new_entregado, new_pendiente, new_fabricar, oid))
+        if new_fabricar == 0:
+            run(f"UPDATE mape_orders SET entregado={ph}, pendiente={ph}, fabricar=0, fabricar_finde=NULL WHERE id={ph}",
+                (new_entregado, new_pendiente, oid))
+        else:
+            run(f"UPDATE mape_orders SET entregado={ph}, pendiente={ph}, fabricar={ph} WHERE id={ph}",
+                (new_entregado, new_pendiente, new_fabricar, oid))
 
     if monto > 0:
         q(f"INSERT INTO mape_account (fecha,detalle,acredita) VALUES ({ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}",
