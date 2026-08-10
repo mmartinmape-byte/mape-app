@@ -102,7 +102,7 @@
 <div id="fab-bar" class="fab-bar" style="display:none">
   <div class="fab-bar-top">
     <span>🗓️ Listos para:</span>
-    <input type="date" id="fab-finde-date">
+    <input type="date" id="fab-finde-date" onchange="guardarFinde(this.value)">
   </div>
   <div class="fab-bar-btns">
     <button class="fab-bar-clear" onclick="vaciarFabricar()">Vaciar</button>
@@ -116,6 +116,7 @@
 <script>
 let orders = [];
 let filtro = 'pendiente';
+let findeGuardado = null;   // fecha del finde objetivo, persistida en el backend
 
 const MAPE_WA = '5491132565719';
 
@@ -139,9 +140,29 @@ function toast(msg) {
 
 async function loadOrders() {
   document.getElementById('lista').innerHTML = '<div class="spinner"></div>';
+  await cargarFinde();
   const res = await fetch('/api/orders');
   orders = await res.json();
   renderCards();
+}
+
+async function cargarFinde() {
+  try {
+    const r = await fetch('/api/settings/finde_objetivo');
+    const j = await r.json();
+    findeGuardado = j.valor || null;
+  } catch (e) { findeGuardado = null; }
+}
+
+async function guardarFinde(val) {
+  findeGuardado = val || null;
+  try {
+    await fetch('/api/settings/finde_objetivo', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({valor: val || null})
+    });
+    toast('Fecha guardada ✓');
+  } catch (e) {}
 }
 
 function setFiltro(f, btn) {
@@ -208,7 +229,7 @@ function renderFabBar() {
   bar.style.display = n > 0 ? 'flex' : 'none';
   document.getElementById('lista').style.paddingBottom = n > 0 ? '150px' : '';
   const dateInput = document.getElementById('fab-finde-date');
-  if (dateInput && !dateInput.value) dateInput.value = proxFindeISO();
+  if (dateInput && !dateInput.value) dateInput.value = findeGuardado || proxFindeISO();
 }
 
 function cardHTML(o) {

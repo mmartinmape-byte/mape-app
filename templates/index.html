@@ -95,7 +95,7 @@
             <p class="font-bold text-gray-800">🏭 Para fabricar: <span id="fab-count-desk">0</span> pedidos</p>
             <div class="flex items-center gap-2 mt-1">
               <label class="text-xs text-gray-500">🗓️ Listos para el finde:</label>
-              <input type="date" id="fab-finde-date" style="width:160px">
+              <input type="date" id="fab-finde-date" style="width:160px" onchange="guardarFinde(this.value)">
             </div>
           </div>
           <div class="flex gap-2">
@@ -410,6 +410,7 @@
 <script>
 // ── State in memory ──────────────────────────────────────────────────────────
 let products = [], orders = [], account = [];
+let findeGuardado = null;   // fecha del finde objetivo, persistida en el backend
 const remitoItems = {};
 
 // ── Utils ────────────────────────────────────────────────────────────────────
@@ -516,7 +517,7 @@ async function showView(v) {
     if (el.getAttribute('onclick') === `showView('${v}')`) el.classList.add('active');
   });
   if (v === 'dashboard') { await loadAll(); renderDashboard(); }
-  if (v === 'pedidos') { orders = await api('GET','/api/orders'); renderPedidos(); }
+  if (v === 'pedidos') { orders = await api('GET','/api/orders'); await cargarFinde(); renderPedidos(); }
   if (v === 'nuevo-pedido') { products = await api('GET','/api/products'); initFormPedido(); }
   if (v === 'remito') { orders = await api('GET','/api/orders'); renderRemito(); }
   if (v === 'cuenta') { account = await api('GET','/api/account'); renderCuenta(); }
@@ -683,7 +684,19 @@ function renderFabResumen() {
   document.getElementById('fab-count-desk').textContent = marcados.length;
   document.getElementById('fab-summary').classList.toggle('hidden', marcados.length === 0);
   const di = document.getElementById('fab-finde-date');
-  if (di && !di.value) di.value = proxFindeISO();
+  if (di && !di.value) di.value = findeGuardado || proxFindeISO();
+}
+
+async function cargarFinde() {
+  try {
+    const j = await api('GET', '/api/settings/finde_objetivo');
+    findeGuardado = j.valor || null;
+  } catch (e) { findeGuardado = null; }
+}
+
+async function guardarFinde(val) {
+  findeGuardado = val || null;
+  try { await api('PUT', '/api/settings/finde_objetivo', {valor: val || null}); } catch (e) {}
 }
 
 async function toggleFabricarDesk(id, checked) {

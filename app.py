@@ -469,6 +469,13 @@ def init_db():
         except Exception:
             conn.rollback()
 
+        # Tabla de configuración (clave/valor): guarda el finde objetivo, etc.
+        try:
+            cur.execute("CREATE TABLE IF NOT EXISTS mape_settings (clave TEXT PRIMARY KEY, valor TEXT)")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
         # Seed if empty
         cur.execute("SELECT COUNT(*) FROM mape_products")
         r = cur.fetchone()
@@ -605,6 +612,27 @@ def delete_account(aid):
     ph = '%s' if USE_PG else '?'
     run(f"DELETE FROM mape_account WHERE id={ph}", (aid,))
     return jsonify({'ok': True})
+
+
+# Configuración (clave/valor) — ej: finde objetivo de la lista de fabricación
+@app.route('/api/settings/<clave>', methods=['GET'])
+def get_setting(clave):
+    ph = '%s' if USE_PG else '?'
+    row = q(f"SELECT valor FROM mape_settings WHERE clave={ph}", (clave,), fetch='one')
+    return jsonify({'clave': clave, 'valor': row['valor'] if row else None})
+
+@app.route('/api/settings/<clave>', methods=['PUT'])
+def set_setting(clave):
+    d = request.json or {}
+    valor = d.get('valor')
+    ph = '%s' if USE_PG else '?'
+    if USE_PG:
+        run(f"INSERT INTO mape_settings (clave,valor) VALUES ({ph},{ph}) "
+            f"ON CONFLICT (clave) DO UPDATE SET valor=EXCLUDED.valor", (clave, valor))
+    else:
+        run(f"INSERT INTO mape_settings (clave,valor) VALUES ({ph},{ph}) "
+            f"ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor", (clave, valor))
+    return jsonify({'clave': clave, 'valor': valor})
 
 
 # Resumen por producto
