@@ -699,6 +699,54 @@ def register_remito():
     return jsonify({'ok': True})
 
 
+# Backup: descarga un Excel con todos los datos (pedidos, cuenta corriente, precios)
+@app.route('/api/backup/excel')
+def backup_excel():
+    import io
+    from datetime import date
+    from flask import send_file
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    hdr = Font(bold=True, color='FFFFFF')
+    fill = PatternFill('solid', start_color='1A3A5C')
+    center = Alignment(horizontal='center')
+
+    def make_sheet(wb, title, cols, rows):
+        ws = wb.create_sheet(title)
+        ws.append(cols)
+        for cell in ws[1]:
+            cell.font = hdr; cell.fill = fill; cell.alignment = center
+        for r in rows:
+            ws.append(list(r))
+        for col in ws.columns:
+            ws.column_dimensions[col[0].column_letter].width = max(
+                len(str(col[0].value or '')),
+                max((len(str(c.value or '')) for c in col[1:]), default=0)) + 3
+        return ws
+
+    pedidos = q("SELECT fecha,producto,cantidad,entregado,pendiente,precio,urgencia,estado,fabricar,fabricar_finde,fecha_esperada,notas FROM mape_orders ORDER BY id")
+    cuenta  = q("SELECT fecha,detalle,debita,acredita FROM mape_account ORDER BY id")
+    precios = q("SELECT nombre,precio FROM mape_products ORDER BY nombre")
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    make_sheet(wb, 'Pedidos',
+               ['Fecha','Producto','Cantidad','Entregado','Pendiente','Precio','Urgencia','Estado','Fabricar','Finde fabricar','Fecha esperada','Notas'],
+               [(p['fecha'],p['producto'],p['cantidad'],p['entregado'],p['pendiente'],p['precio'],p['urgencia'],p['estado'],p['fabricar'],p['fabricar_finde'],p['fecha_esperada'],p['notas']) for p in pedidos])
+    make_sheet(wb, 'Cuenta corriente', ['Fecha','Detalle','Debita','Acredita'],
+               [(c['fecha'],c['detalle'],c['debita'],c['acredita']) for c in cuenta])
+    make_sheet(wb, 'Lista de precios', ['Producto','Precio'],
+               [(p['nombre'],p['precio']) for p in precios])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f'backup_mape_{date.today().strftime("%Y%m%d")}.xlsx'
+    return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name=fname)
+
+
 if __name__ == '__main__':
     init_db()
     app.run(debug=True, port=5002)
