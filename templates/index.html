@@ -55,6 +55,7 @@
       <li><span class="nav-link" onclick="showView('pedidos')">📦 Pedidos</span></li>
       <li><span class="nav-link" onclick="showView('nuevo-pedido')">➕ Nuevo Pedido</span></li>
       <li><span class="nav-link" onclick="showView('remito')">🚚 Registrar Remito</span></li>
+      <li><span class="nav-link" onclick="showView('remitos')">📄 Remitos</span></li>
       <li><span class="nav-link" onclick="showView('cuenta')">💰 Cuenta Corriente</span></li>
       <li><span class="nav-link" onclick="showView('productos')">🏷️ Lista de Precios</span></li>
       <li><span class="nav-link" onclick="showView('resumen')">📈 Resumen Productos</span></li>
@@ -234,8 +235,31 @@
         <div class="card">
           <h3 class="font-semibold text-gray-700 mb-4">Items Recibidos</h3>
           <p class="text-xs text-gray-500 mb-3">Seleccioná los pedidos pendientes que llegaron con este remito e indicá la cantidad recibida.</p>
+          <input type="text" id="r-buscar" placeholder="🔍 Buscar producto..." oninput="filtrarRemitoItems()"
+            style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px 12px;font-size:0.85rem;margin-bottom:10px">
           <div id="remito-items-list"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- REMITOS REGISTRADOS -->
+    <div id="view-remitos" class="view">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">Remitos registrados</h2>
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="text-left p-3 text-gray-600">Fecha</th>
+              <th class="text-left p-3 text-gray-600">N° Remito</th>
+              <th class="text-center p-3 text-gray-600">Productos</th>
+              <th class="text-center p-3 text-gray-600">Cajas</th>
+              <th class="text-right p-3 text-gray-600">Monto</th>
+              <th class="text-left p-3 text-gray-600">Notas</th>
+              <th class="text-center p-3 text-gray-600">Detalle</th>
+            </tr>
+          </thead>
+          <tbody id="tabla-remitos"><tr><td colspan="7" class="p-8 text-center text-gray-400">Cargando...</td></tr></tbody>
+        </table>
       </div>
     </div>
 
@@ -527,6 +551,7 @@ async function showView(v) {
   }
   if (v === 'nuevo-pedido') { products = await api('GET','/api/products'); initFormPedido(); }
   if (v === 'remito') { orders = await api('GET','/api/orders'); renderRemito(); }
+  if (v === 'remitos') { await renderRemitos(); }
   if (v === 'cuenta') { account = await api('GET','/api/account'); renderCuenta(); }
   if (v === 'productos') { products = await api('GET','/api/products'); renderProductos(); }
   if (v === 'resumen') { await loadResumen(); }
@@ -942,23 +967,38 @@ async function guardarPedido() {
 function renderRemito() {
   document.getElementById('r-fecha').value = today();
   document.getElementById('r-monto').value = '';
+  document.getElementById('r-buscar').value = '';
   Object.keys(remitoItems).forEach(k => delete remitoItems[k]);
+  window._remitoPend = orders.filter(o => o.pendiente > 0);
+  renderRemitoItems();
+}
 
-  const pendientes = orders.filter(o => o.pendiente > 0);
+function renderRemitoItems() {
   const el = document.getElementById('remito-items-list');
-  if (!pendientes.length) { el.innerHTML='<p class="text-gray-400 text-sm">No hay pedidos con items pendientes.</p>'; return; }
+  const pend = window._remitoPend || [];
+  if (!pend.length) { el.innerHTML='<p class="text-gray-400 text-sm">No hay pedidos con items pendientes.</p>'; return; }
 
-  el.innerHTML = pendientes.map(o => `
+  const busq = (document.getElementById('r-buscar').value || '').toLowerCase();
+  const lista = busq ? pend.filter(o => o.producto.toLowerCase().includes(busq)) : pend;
+  if (!lista.length) { el.innerHTML='<p class="text-gray-400 text-sm">Ningún producto coincide con la búsqueda.</p>'; return; }
+
+  el.innerHTML = lista.map(o => {
+    const sel = remitoItems[o.id] !== undefined;
+    const qty = sel ? remitoItems[o.id] : o.pendiente;
+    return `
     <div class="flex items-center gap-3 py-2 border-b last:border-0">
-      <input type="checkbox" id="ri-check-${o.id}" onchange="toggleRemitoItem(${o.id})" class="w-4 h-4 flex-shrink-0">
+      <input type="checkbox" id="ri-check-${o.id}" onchange="toggleRemitoItem(${o.id})" class="w-4 h-4 flex-shrink-0" ${sel?'checked':''}>
       <div class="flex-1 min-w-0">
         <div class="text-sm font-medium text-gray-800 truncate">${o.producto}</div>
         <div class="text-xs text-gray-500">Pend: ${o.pendiente} · ${o.precio?fmt(o.precio)+'/u':'sin precio'} ${urgBadge(o.urgencia)}</div>
       </div>
-      <input type="number" id="ri-qty-${o.id}" min="1" max="${o.pendiente}" value="${o.pendiente}"
-        style="width:70px" class="text-sm" disabled onchange="updateRemitoItem(${o.id})">
-    </div>`).join('');
+      <input type="number" id="ri-qty-${o.id}" min="1" max="${o.pendiente}" value="${qty}"
+        style="width:70px" class="text-sm" ${sel?'':'disabled'} onchange="updateRemitoItem(${o.id})">
+    </div>`;
+  }).join('');
 }
+
+function filtrarRemitoItems() { renderRemitoItems(); }
 
 function toggleRemitoItem(id) {
   const checked = document.getElementById(`ri-check-${id}`).checked;
@@ -1003,19 +1043,100 @@ async function guardarRemito() {
     : `Entrega ${fecha.split('-').slice(1).reverse().join('/')}${notas?' - '+notas:''}`;
 
   try {
-    await api('POST', '/api/remito', {
-      fecha, monto, detalle,
+    const res = await api('POST', '/api/remito', {
+      fecha, monto, numero, notas, detalle,
       items: Object.entries(remitoItems).map(([id,qty]) => ({orderId:parseInt(id),cantidad:qty}))
     });
     orders = await api('GET','/api/orders');
     account = await api('GET','/api/account');
-    alert(`Remito registrado correctamente.${monto>0?'\nMonto: '+fmt(monto):''}`);
+    // Imprimir el detalle del remito recién registrado
+    if (res && res.remito_id) {
+      const remito = await api('GET', `/api/remitos/${res.remito_id}`);
+      imprimirRemito(remito);
+    }
     renderRemito();
     document.getElementById('r-numero').value='';
     document.getElementById('r-notas').value='';
   } finally {
     btn.disabled = false; btn.textContent = '✅ Registrar Remito';
   }
+}
+
+// Ventana imprimible con el detalle del remito (productos, cantidades e importes)
+function imprimirRemito(r) {
+  const items = r.items || [];
+  const filas = items.map(it => {
+    const sub = (it.cantidad || 0) * (it.precio || 0);
+    return `<tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb">${it.producto}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:center">${it.cantidad}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:right">${it.precio ? fmt(it.precio) : '-'}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:right">${sub ? fmt(sub) : '-'}</td>
+    </tr>`;
+  }).join('');
+  const totalItems = items.reduce((s, it) => s + (it.cantidad||0)*(it.precio||0), 0);
+  const monto = Number(r.monto) || 0;
+  const fechaTxt = r.fecha ? new Date(r.fecha+'T00:00:00').toLocaleDateString('es-AR') : '';
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+    <title>Remito ${r.numero || r.id}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0} body{font-family:Arial,sans-serif;font-size:13px;color:#111;padding:28px 32px}
+      @media print{ body{padding:0} .no-print{display:none!important} }
+      h1{font-size:20px;color:#1a3a5c} .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a3a5c;padding-bottom:12px;margin-bottom:16px}
+      .meta{text-align:right;font-size:12px;color:#555} table{width:100%;border-collapse:collapse;margin-bottom:14px}
+      thead th{background:#1a3a5c;color:#fff;padding:9px 10px;text-align:left;font-size:12px}
+      thead th:nth-child(2){text-align:center} thead th:nth-child(3),thead th:nth-child(4){text-align:right}
+      .tot{display:flex;justify-content:flex-end;gap:40px;font-size:14px;font-weight:700;padding:6px 10px}
+      .notas{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:12px}
+      .btn{background:#1a3a5c;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:18px}
+    </style></head><body>
+    <button class="btn no-print" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+    <div class="head">
+      <div><h1>MAPE</h1><div style="font-size:12px;color:#555">Remito de entrega</div></div>
+      <div class="meta">
+        <div><strong>Remito N°:</strong> ${r.numero || ('#'+r.id)}</div>
+        <div><strong>Fecha:</strong> ${fechaTxt}</div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio unit.</th><th>Subtotal</th></tr></thead>
+      <tbody>${filas || '<tr><td colspan="4" style="padding:12px;text-align:center;color:#999">Sin ítems</td></tr>'}</tbody>
+    </table>
+    <div class="tot"><span>Total ítems:</span><span>${fmt(totalItems)}</span></div>
+    ${monto && Math.abs(monto-totalItems)>1 ? `<div class="tot"><span>Monto del remito:</span><span>${fmt(monto)}</span></div>` : ''}
+    ${r.notas ? `<div class="notas"><strong>Notas:</strong> ${r.notas}</div>` : ''}
+    </body></html>`;
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
+// Lista de remitos registrados
+async function renderRemitos() {
+  const tbody = document.getElementById('tabla-remitos');
+  tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-gray-400">Cargando...</td></tr>';
+  const remitos = await api('GET', '/api/remitos');
+  if (!remitos.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-gray-400">Todavía no hay remitos registrados.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = remitos.map(r => `
+    <tr class="border-b" style="hover:bg-gray-50">
+      <td class="p-3 text-gray-600 whitespace-nowrap">${r.fecha ? new Date(r.fecha+'T00:00:00').toLocaleDateString('es-AR') : '—'}</td>
+      <td class="p-3">${r.numero || '<span class="text-gray-400">#'+r.id+'</span>'}</td>
+      <td class="p-3 text-center">${r.items}</td>
+      <td class="p-3 text-center">${r.total_cajas}</td>
+      <td class="p-3 text-right">${r.monto ? fmt(r.monto) : '-'}</td>
+      <td class="p-3 text-gray-500 text-xs">${r.notas || ''}</td>
+      <td class="p-3 text-center">
+        <button class="btn btn-sm" style="background:#2563eb;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.8rem" onclick="verRemito(${r.id})">🖨 Detalle</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function verRemito(id) {
+  const remito = await api('GET', `/api/remitos/${id}`);
+  imprimirRemito(remito);
 }
 
 // ── Cuenta Corriente ─────────────────────────────────────────────────────────

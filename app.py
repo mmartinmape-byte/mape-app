@@ -449,6 +449,50 @@ def init_db():
             """)
         conn.commit()
 
+        # Tablas de remitos: guardan el detalle de cada remito registrado para
+        # poder reimprimirlo/descargarlo después.
+        if pg:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_remitos (
+                    id SERIAL PRIMARY KEY,
+                    numero TEXT DEFAULT '',
+                    fecha TEXT NOT NULL,
+                    monto NUMERIC DEFAULT 0,
+                    notas TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_remito_items (
+                    id SERIAL PRIMARY KEY,
+                    remito_id INTEGER NOT NULL REFERENCES mape_remitos(id) ON DELETE CASCADE,
+                    producto TEXT NOT NULL,
+                    cantidad INTEGER NOT NULL DEFAULT 0,
+                    precio NUMERIC DEFAULT 0
+                )
+            """)
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_remitos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    numero TEXT DEFAULT '',
+                    fecha TEXT NOT NULL,
+                    monto REAL DEFAULT 0,
+                    notas TEXT DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_remito_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    remito_id INTEGER NOT NULL,
+                    producto TEXT NOT NULL,
+                    cantidad INTEGER NOT NULL DEFAULT 0,
+                    precio REAL DEFAULT 0
+                )
+            """)
+        conn.commit()
+
         # Migración: agregar columna estado si no existe
         try:
             if pg:
@@ -671,7 +715,15 @@ def register_remito():
     items = d.get('items', [])  # [{orderId, cantidad}]
     fecha = d['fecha']
     monto = d.get('monto', 0)
+    numero = d.get('numero', '')
+    notas  = d.get('notas', '')
     detalle = d.get('detalle', f"Entrega {fecha}")
+
+    # Cabecera del remito (para poder reimprimirlo/descargarlo después)
+    remito_id = q(
+        f"INSERT INTO mape_remitos (numero,fecha,monto,notas) VALUES ({ph},{ph},{ph},{ph}) "
+        f"{'RETURNING id' if USE_PG else ''}",
+        (numero, fecha, monto, notas), fetch='id')
 
     for item in items:
         oid = item['orderId']
@@ -680,6 +732,9 @@ def register_remito():
         if not order:
             continue
         real = min(qty, order['pendiente'])
+        # Guardar el ítem del remito con el precio del pedido
+        run(f"INSERT INTO mape_remito_items (remito_id,producto,cantidad,precio) VALUES ({ph},{ph},{ph},{ph})",
+            (remito_id, order['producto'], real, order.get('precio') or 0))
         new_entregado = order['entregado'] + real
         new_pendiente = max(0, order['pendiente'] - real)
         # Al recibir, la marca "fabricar" baja junto con lo pendiente:
@@ -696,7 +751,33 @@ def register_remito():
         q(f"INSERT INTO mape_account (fecha,detalle,acredita) VALUES ({ph},{ph},{ph}) {'RETURNING id' if USE_PG else ''}",
           (fecha, detalle, monto), fetch='id')
 
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'remito_id': remito_id})
+
+
+# Lista de remitos registrados
+@app.route('/api/remitos', methods=['GET'])
+def get_remitos():
+    return jsonify(q("""
+        SELECT r.id, r.numero, r.fecha, r.monto, r.notas, r.created_at,
+               COUNT(i.id) AS items,
+               COALESCE(SUM(i.cantidad), 0) AS total_cajas
+        FROM mape_remitos r
+        LEFT JOIN mape_remito_items i ON i.remito_id = r.id
+        GROUP BY r.id, r.numero, r.fecha, r.monto, r.notas, r.created_at
+        ORDER BY r.id DESC
+    """))
+
+# Detalle de un remito (para imprimir/descargar)
+@app.route('/api/remitos/<int:rid>', methods=['GET'])
+def get_remito(rid):
+    ph = '%s' if USE_PG else '?'
+    remito = q(f"SELECT * FROM mape_remitos WHERE id={ph}", (rid,), fetch='one')
+    if not remito:
+        return jsonify({'error': 'No encontrado'}), 404
+    remito['items'] = q(
+        f"SELECT producto, cantidad, precio FROM mape_remito_items WHERE remito_id={ph} ORDER BY id",
+        (rid,))
+    return jsonify(remito)
 
 
 # Backup: descarga un Excel con todos los datos (pedidos, cuenta corriente, precios)
