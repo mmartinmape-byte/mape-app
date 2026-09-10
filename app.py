@@ -493,6 +493,50 @@ def init_db():
             """)
         conn.commit()
 
+        # Tablas de tandas: cada envío semanal de fabricación a MAPE queda guardado
+        # como una tanda (finde + productos/cantidades) para hacer seguimiento.
+        if pg:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_tandas (
+                    id SERIAL PRIMARY KEY,
+                    finde TEXT,
+                    fecha_envio TEXT NOT NULL,
+                    notas TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_tanda_items (
+                    id SERIAL PRIMARY KEY,
+                    tanda_id INTEGER NOT NULL REFERENCES mape_tandas(id) ON DELETE CASCADE,
+                    order_id INTEGER,
+                    producto TEXT NOT NULL,
+                    cantidad INTEGER NOT NULL DEFAULT 0,
+                    recibido INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_tandas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    finde TEXT,
+                    fecha_envio TEXT NOT NULL,
+                    notas TEXT DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mape_tanda_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tanda_id INTEGER NOT NULL,
+                    order_id INTEGER,
+                    producto TEXT NOT NULL,
+                    cantidad INTEGER NOT NULL DEFAULT 0,
+                    recibido INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+        conn.commit()
+
         # Migración: agregar columna estado si no existe
         try:
             if pg:
@@ -778,6 +822,80 @@ def get_remito(rid):
         f"SELECT producto, cantidad, precio FROM mape_remito_items WHERE remito_id={ph} ORDER BY id",
         (rid,))
     return jsonify(remito)
+
+
+# ── Tandas de fabricación (seguimiento semanal) ────────────────────────────────
+
+@app.route('/api/tandas', methods=['POST'])
+def create_tanda():
+    """Guarda un pedido semanal de fabricación (se llama al enviar la lista a MAPE).
+    Body: {finde, fecha?, notas?, items:[{producto, cantidad, orderId?}]}"""
+    from datetime import date
+    d = request.json or {}
+    ph = '%s' if USE_PG else '?'
+    items = d.get('items', [])
+    if not items:
+        return jsonify({'error': 'La lista está vacía'}), 400
+    finde = d.get('finde') or None
+    fecha = d.get('fecha') or date.today().strftime('%Y-%m-%d')
+    notas = d.get('notas', '')
+
+    tanda_id = q(
+        f"INSERT INTO mape_tandas (finde,fecha_envio,notas) VALUES ({ph},{ph},{ph}) "
+        f"{'RETURNING id' if USE_PG else ''}",
+        (finde, fecha, notas), fetch='id')
+
+    for it in items:
+        run(f"INSERT INTO mape_tanda_items (tanda_id,order_id,producto,cantidad,recibido) "
+            f"VALUES ({ph},{ph},{ph},{ph},0)",
+            (tanda_id, it.get('orderId'), it.get('producto', ''), int(it.get('cantidad') or 0)))
+
+    return jsonify({'ok': True, 'tanda_id': tanda_id})
+
+
+@app.route('/api/tandas', methods=['GET'])
+def get_tandas():
+    """Lista las tandas con conteo de ítems y recibidos (más nueva primero)."""
+    return jsonify(q("""
+        SELECT t.id, t.finde, t.fecha_envio, t.notas, t.created_at,
+               COUNT(i.id) AS items,
+               COALESCE(SUM(i.cantidad), 0) AS total_cantidad,
+               COALESCE(SUM(CASE WHEN i.recibido=1 THEN 1 ELSE 0 END), 0) AS recibidos
+        FROM mape_tandas t
+        LEFT JOIN mape_tanda_items i ON i.tanda_id = t.id
+        GROUP BY t.id, t.finde, t.fecha_envio, t.notas, t.created_at
+        ORDER BY t.fecha_envio DESC, t.id DESC
+    """))
+
+
+@app.route('/api/tandas/<int:tid>', methods=['GET'])
+def get_tanda(tid):
+    ph = '%s' if USE_PG else '?'
+    tanda = q(f"SELECT * FROM mape_tandas WHERE id={ph}", (tid,), fetch='one')
+    if not tanda:
+        return jsonify({'error': 'No encontrada'}), 404
+    tanda['items'] = q(
+        f"SELECT id, order_id, producto, cantidad, recibido FROM mape_tanda_items "
+        f"WHERE tanda_id={ph} ORDER BY id", (tid,))
+    return jsonify(tanda)
+
+
+@app.route('/api/tandas/items/<int:iid>', methods=['PATCH'])
+def patch_tanda_item(iid):
+    """Marca/desmarca un ítem como recibido (seguimiento manual)."""
+    d = request.json or {}
+    ph = '%s' if USE_PG else '?'
+    recibido = 1 if d.get('recibido') else 0
+    run(f"UPDATE mape_tanda_items SET recibido={ph} WHERE id={ph}", (recibido, iid))
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tandas/<int:tid>', methods=['DELETE'])
+def delete_tanda(tid):
+    ph = '%s' if USE_PG else '?'
+    run(f"DELETE FROM mape_tanda_items WHERE tanda_id={ph}", (tid,))
+    run(f"DELETE FROM mape_tandas WHERE id={ph}", (tid,))
+    return jsonify({'ok': True})
 
 
 # Backup: descarga un Excel con todos los datos (pedidos, cuenta corriente, precios)

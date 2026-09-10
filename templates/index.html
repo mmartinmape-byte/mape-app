@@ -53,6 +53,7 @@
     <ul class="space-y-1">
       <li><span class="nav-link" onclick="showView('dashboard')">📊 Dashboard</span></li>
       <li><span class="nav-link" onclick="showView('pedidos')">📦 Pedidos</span></li>
+      <li><span class="nav-link" onclick="showView('seguimiento')">🗓️ Seguimiento semanal</span></li>
       <li><span class="nav-link" onclick="showView('nuevo-pedido')">➕ Nuevo Pedido</span></li>
       <li><span class="nav-link" onclick="showView('remito')">🚚 Registrar Remito</span></li>
       <li><span class="nav-link" onclick="showView('remitos')">📄 Remitos</span></li>
@@ -151,6 +152,17 @@
         </table>
         <div id="pedidos-empty" class="p-8 text-center text-gray-400 hidden">No hay pedidos que mostrar.</div>
       </div>
+    </div>
+
+    <!-- SEGUIMIENTO SEMANAL -->
+    <div id="view-seguimiento" class="view">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-gray-800">🗓️ Seguimiento semanal de fabricación</h2>
+        <button class="btn btn-secondary" onclick="loadSeguimiento()">↻ Actualizar</button>
+      </div>
+      <p class="text-sm text-gray-500 mb-4">Cada vez que enviás la lista a MAPE se guarda acá el pedido de esa semana. Marcá cada ítem como recibido para hacerle seguimiento.</p>
+      <div id="seguimiento-cont"></div>
+      <div id="seguimiento-empty" class="p-8 text-center text-gray-400 hidden">Todavía no hay pedidos guardados. Se van a guardar solos cuando envíes la lista a MAPE desde <strong>Pedidos</strong>.</div>
     </div>
 
     <!-- NUEVO PEDIDO -->
@@ -552,6 +564,7 @@ async function showView(v) {
   if (v === 'nuevo-pedido') { products = await api('GET','/api/products'); initFormPedido(); }
   if (v === 'remito') { orders = await api('GET','/api/orders'); renderRemito(); }
   if (v === 'remitos') { await renderRemitos(); }
+  if (v === 'seguimiento') { await loadSeguimiento(); }
   if (v === 'cuenta') { account = await api('GET','/api/account'); renderCuenta(); }
   if (v === 'productos') { products = await api('GET','/api/products'); renderProductos(); }
   if (v === 'resumen') { await loadResumen(); }
@@ -759,7 +772,7 @@ async function cambiarCantFabricarDesk(id, el) {
   await api('PATCH', `/api/orders/${id}/estado`, {fabricar: n});
 }
 
-function enviarListaFabricarDesk() {
+async function enviarListaFabricarDesk() {
   const f = findeActualDesk();
   let list = orders.filter(o => o.fabricar && o.fabricar_finde === f);
   if (!list.length) { alert('No hay pedidos marcados para este finde.'); return; }
@@ -771,6 +784,13 @@ function enviarListaFabricarDesk() {
   });
   const lineas = list.map((o,i) => `${i+1}. ${o.producto} — ${o.fabricar}`).join('\n');
   const msg = `Hola MAPE! Estos son los pedidos para fabricar (listos para el finde ${findeTxt}):\n\n${lineas}\n\nTotal: ${list.length} ${list.length===1?'pedido':'pedidos'}. Gracias!`;
+  // Guardar la tanda para el seguimiento semanal (no bloquea el envío si falla)
+  try {
+    await api('POST', '/api/tandas', {
+      finde: f,
+      items: list.map(o => ({ orderId: o.id, producto: o.producto, cantidad: o.fabricar }))
+    });
+  } catch (e) {}
   window.open(`https://wa.me/${MAPE_WA}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
@@ -784,6 +804,73 @@ async function vaciarFabricarDesk() {
     await api('PATCH', `/api/orders/${o.id}/estado`, {fabricar: 0, fabricarFinde: null});
   }
   renderPedidos();
+}
+
+// ── Seguimiento semanal de fabricación ────────────────────────────────────────
+function escH(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtFechaDMA(iso){ return iso ? new Date(iso+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}) : ''; }
+
+async function loadSeguimiento() {
+  const list = await api('GET', '/api/tandas');
+  const cont  = document.getElementById('seguimiento-cont');
+  const empty = document.getElementById('seguimiento-empty');
+  if (!list.length) { cont.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  const detalles = await Promise.all(list.map(t => api('GET', `/api/tandas/${t.id}`)));
+  cont.innerHTML = detalles.map(renderTandaCard).join('');
+}
+
+function renderTandaCard(t) {
+  const items = t.items || [];
+  const recibidos = items.filter(i => i.recibido).length;
+  const total = items.length;
+  const completo = total > 0 && recibidos === total;
+  const findeTxt = t.finde ? fmtFindeDMA(t.finde) : '—';
+  const barColor = completo ? '#16a34a' : (recibidos > 0 ? '#f59e0b' : '#9ca3af');
+  const filas = items.map(i => `
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer;${i.recibido?'background:#f0fdf4':''}">
+      <input type="checkbox" ${i.recibido?'checked':''} onchange="toggleRecibido(${i.id}, this.checked, ${t.id})" style="width:18px;height:18px;accent-color:#16a34a;cursor:pointer">
+      <span style="flex:1;${i.recibido?'text-decoration:line-through;color:#9ca3af':'color:#1f2937'}">${escH(i.producto)}</span>
+      <span style="font-weight:700;color:#2563eb">${i.cantidad}</span>
+    </label>`).join('');
+  return `
+    <div id="tanda-card-${t.id}" class="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
+      <div class="flex items-center gap-3 p-4 border-b border-gray-100">
+        <span style="background:#f59e0b;color:#fff;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:9999px;white-space:nowrap">🏭 Finde ${findeTxt}</span>
+        <span class="text-sm text-gray-500">Enviado: ${fmtFechaDMA(t.fecha_envio)}</span>
+        <span id="tanda-prog-${t.id}" class="text-sm font-semibold" style="color:${barColor};margin-left:auto">${recibidos}/${total} recibidos${completo?' ✅':''}</span>
+        <button onclick="borrarTanda(${t.id})" title="Eliminar esta tanda" class="text-gray-300 hover:text-red-500" style="font-size:1.1rem;line-height:1">🗑️</button>
+      </div>
+      <div>${filas || '<div class="p-4 text-center text-gray-400 text-sm">Sin ítems</div>'}</div>
+    </div>`;
+}
+
+async function toggleRecibido(itemId, checked, tandaId) {
+  await api('PATCH', `/api/tandas/items/${itemId}`, { recibido: checked });
+  // Actualizar el contador y estilos de la tarjeta sin recargar todo
+  const card = document.getElementById(`tanda-card-${tandaId}`);
+  if (!card) return;
+  const boxes = card.querySelectorAll('input[type="checkbox"]');
+  const total = boxes.length;
+  const recibidos = [...boxes].filter(b => b.checked).length;
+  const completo = total > 0 && recibidos === total;
+  boxes.forEach(b => {
+    const label = b.closest('label');
+    const txt = label.querySelector('span');
+    if (b.checked) { label.style.background = '#f0fdf4'; txt.style.textDecoration = 'line-through'; txt.style.color = '#9ca3af'; }
+    else { label.style.background = ''; txt.style.textDecoration = 'none'; txt.style.color = '#1f2937'; }
+  });
+  const prog = document.getElementById(`tanda-prog-${tandaId}`);
+  if (prog) {
+    prog.textContent = `${recibidos}/${total} recibidos${completo?' ✅':''}`;
+    prog.style.color = completo ? '#16a34a' : (recibidos > 0 ? '#f59e0b' : '#9ca3af');
+  }
+}
+
+async function borrarTanda(tid) {
+  if (!confirm('¿Eliminar esta tanda del seguimiento? (no afecta los pedidos)')) return;
+  await api('DELETE', `/api/tandas/${tid}`);
+  loadSeguimiento();
 }
 
 function editarPedido(id) {

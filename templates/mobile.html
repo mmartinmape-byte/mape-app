@@ -389,7 +389,7 @@ async function cambiarCantFabricar(id, el) {
   toast('Cantidad actualizada ✓');
 }
 
-function enviarListaFabricar() {
+async function enviarListaFabricar() {
   const f = findeActual();
   let list = orders.filter(o => o.fabricar && o.fabricar_finde === f);
   if (!list.length) { toast('No hay pedidos marcados para este finde'); return; }
@@ -405,6 +405,14 @@ function enviarListaFabricar() {
   const lineas = list.map((o,i) => `${i+1}. ${o.producto} — ${o.fabricar}`).join('\n');
 
   const msg = `Hola MAPE! Estos son los pedidos para fabricar (listos para el finde ${findeTxt}):\n\n${lineas}\n\nTotal: ${list.length} ${list.length===1?'pedido':'pedidos'}. Gracias!`;
+  // Guardar la tanda para el seguimiento semanal (no bloquea el envío si falla)
+  try {
+    await fetch('/api/tandas', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ finde: f, items: list.map(o => ({ orderId: o.id, producto: o.producto, cantidad: o.fabricar })) })
+    });
+  } catch (e) {}
   window.open(`https://wa.me/${MAPE_WA}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
