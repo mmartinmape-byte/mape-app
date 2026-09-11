@@ -704,7 +704,7 @@ function renderPedidos() {
   empty.classList.add('hidden');
   tbody.innerHTML = list.map(o => `
     <tr class="table-row border-b">
-      <td class="p-3 text-center">${o.pendiente>0?`<input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricarDesk(${o.id}, this.checked)" title="Fabricar esta semana" style="width:18px;height:18px;accent-color:#f59e0b;cursor:pointer">${o.fabricar?`<br><input type="number" min="1" max="${o.pendiente}" value="${o.fabricar}" onchange="cambiarCantFabricarDesk(${o.id}, this)" title="Cantidad a fabricar (de ${o.pendiente} pend.)" style="width:56px;margin-top:4px;text-align:center;padding:2px 4px;font-size:0.8rem;accent-color:#f59e0b">${o.fabricar_finde?`<br><span style="display:inline-block;margin-top:3px;background:#f59e0b;color:#fff;font-size:0.66rem;font-weight:700;padding:1px 6px;border-radius:9999px;white-space:nowrap">→ ${fmtFindeDMA(o.fabricar_finde)}</span>`:''}`:''}`:''}</td>
+      <td class="p-3 text-center">${o.pendiente>0?`<input type="checkbox" ${o.fabricar?'checked':''} onchange="toggleFabricarDesk(${o.id}, this.checked)" title="Fabricar esta semana" style="width:18px;height:18px;accent-color:#f59e0b;cursor:pointer">${o.fabricar?`<br><input type="number" min="1" max="${o.pendiente}" value="${o.fabricar}" onchange="cambiarCantFabricarDesk(${o.id}, this)" title="Cantidad a fabricar (de ${o.pendiente} pend.)" style="width:56px;margin-top:4px;text-align:center;padding:2px 4px;font-size:0.8rem;accent-color:#f59e0b"><br><input type="date" value="${o.fabricar_finde||findeActualDesk()}" onchange="cambiarFindeFabricarDesk(${o.id}, this.value)" title="Finde para el que se fabrica (podés cambiarlo)" style="margin-top:4px;font-size:0.68rem;padding:1px 4px;border:1px solid #f59e0b;border-radius:6px;color:#b45309;cursor:pointer">`:''}`:''}</td>
       <td class="p-3 text-gray-600 whitespace-nowrap">${fmtFecha(o.fecha)}</td>
       <td class="p-3">
         <div class="font-medium text-gray-800">${o.producto}</div>
@@ -770,6 +770,13 @@ async function cambiarCantFabricarDesk(id, el) {
   if (o) { n = Math.max(1, Math.min(n, o.pendiente)); o.fabricar = n; }
   el.value = n;
   await api('PATCH', `/api/orders/${id}/estado`, {fabricar: n});
+}
+
+async function cambiarFindeFabricarDesk(id, val) {
+  const o = orders.find(x => x.id === id);
+  if (o) o.fabricar_finde = val || null;
+  await api('PATCH', `/api/orders/${id}/estado`, {fabricarFinde: val || null});
+  renderPedidos();  // re-scopea el panel/contador de la semana
 }
 
 async function enviarListaFabricarDesk() {

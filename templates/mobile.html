@@ -303,6 +303,11 @@ function cardHTML(o) {
       <input type="number" min="1" max="${o.pendiente}" value="${o.fabricar}"
         onchange="cambiarCantFabricar(${o.id}, this)">
       <span>de ${o.pendiente} pend.</span>
+    </div>
+    <div class="fab-qty">
+      <span>Para el finde:</span>
+      <input type="date" value="${o.fabricar_finde||findeActual()}"
+        onchange="cambiarFindeFabricar(${o.id}, this.value)">
     </div>` : ''}
 
     <!-- WhatsApp -->
@@ -387,6 +392,19 @@ async function cambiarCantFabricar(id, el) {
     body: JSON.stringify({fabricar: n})
   });
   toast('Cantidad actualizada ✓');
+}
+
+async function cambiarFindeFabricar(id, val) {
+  const order = orders.find(o => o.id === id);
+  if (order) order.fabricar_finde = val || null;
+  await fetch(`/api/orders/${id}/estado`, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({fabricarFinde: val || null})
+  });
+  renderCards();
+  renderFabBar();
+  toast('Finde actualizado ✓');
 }
 
 async function enviarListaFabricar() {
