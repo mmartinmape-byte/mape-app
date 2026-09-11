@@ -882,12 +882,44 @@ def get_tanda(tid):
 
 @app.route('/api/tandas/items/<int:iid>', methods=['PATCH'])
 def patch_tanda_item(iid):
-    """Marca/desmarca un ítem como recibido (seguimiento manual)."""
+    """Actualiza un ítem: recibido (seguimiento manual) y/o cantidad."""
     d = request.json or {}
     ph = '%s' if USE_PG else '?'
-    recibido = 1 if d.get('recibido') else 0
-    run(f"UPDATE mape_tanda_items SET recibido={ph} WHERE id={ph}", (recibido, iid))
+    fields, vals = [], []
+    if 'recibido' in d:
+        fields.append(f"recibido={ph}"); vals.append(1 if d.get('recibido') else 0)
+    if 'cantidad' in d:
+        fields.append(f"cantidad={ph}"); vals.append(max(0, int(d.get('cantidad') or 0)))
+    if 'producto' in d:
+        fields.append(f"producto={ph}"); vals.append((d.get('producto') or '').strip())
+    if not fields:
+        return jsonify({'error': 'Nada para actualizar'}), 400
+    vals.append(iid)
+    run(f"UPDATE mape_tanda_items SET {', '.join(fields)} WHERE id={ph}", vals)
     return jsonify({'ok': True})
+
+
+@app.route('/api/tandas/items/<int:iid>', methods=['DELETE'])
+def delete_tanda_item(iid):
+    """Saca un producto de la tanda (seguimiento de la semana)."""
+    ph = '%s' if USE_PG else '?'
+    run(f"DELETE FROM mape_tanda_items WHERE id={ph}", (iid,))
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tandas/<int:tid>/items', methods=['POST'])
+def add_tanda_item(tid):
+    """Agrega un producto a una tanda ya creada."""
+    d = request.json or {}
+    ph = '%s' if USE_PG else '?'
+    producto = (d.get('producto') or '').strip()
+    cantidad = max(0, int(d.get('cantidad') or 0))
+    if not producto or cantidad <= 0:
+        return jsonify({'error': 'Producto y cantidad son obligatorios'}), 400
+    iid = q(f"INSERT INTO mape_tanda_items (tanda_id,order_id,producto,cantidad,recibido) "
+            f"VALUES ({ph},{ph},{ph},{ph},0) {'RETURNING id' if USE_PG else ''}",
+            (tid, d.get('orderId'), producto, cantidad), fetch='id')
+    return jsonify({'ok': True, 'item_id': iid})
 
 
 @app.route('/api/tandas/<int:tid>', methods=['DELETE'])
